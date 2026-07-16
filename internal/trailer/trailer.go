@@ -1,0 +1,204 @@
+// Package trailer implements the Context Trailer Format v0.1
+// (docs/trailer-format.md): parsing, rendering, and linting of git commit
+// trailers. All functions are pure; callers own IO.
+package trailer
+
+import (
+	"regexp"
+	"strings"
+)
+
+// Canonical keys of the registry.
+const (
+	KeyWhy      = "Context-Why"
+	KeyScope    = "Context-Scope"
+	KeyDecision = "Context-Decision"
+	KeyRef      = "Context-Ref"
+)
+
+// Trailer is one key/value pair from a commit's trailer block.
+type Trailer struct {
+	Key   string
+	Value string
+	// Multiline is set when the value was folded from continuation lines,
+	// which the format forbids for writers (readers must still accept them).
+	Multiline bool
+}
+
+var (
+	trailerLineRe = regexp.MustCompile(`^([A-Za-z0-9-]+):[ \t]*(.*)$`)
+	scopeRe       = regexp.MustCompile(`^[a-z0-9-]+(/[a-z0-9-]+)*$`)
+	contextKeyRe  = regexp.MustCompile(`(?i)^context-[a-z0-9-]*:`)
+)
+
+// Parse returns the trailers of msg's trailer block: the last paragraph, when
+// the message has more than one paragraph and every line in it is a trailer
+// line or a continuation line. A single-paragraph message has no trailer
+// block (its only paragraph is the subject).
+func Parse(msg string) []Trailer {
+	block := lastParagraph(msg)
+	if block == nil {
+		return nil
+	}
+	var ts []Trailer
+	for _, line := range block {
+		if isContinuation(line) {
+			if len(ts) == 0 {
+				return nil
+			}
+			ts[len(ts)-1].Value += " " + strings.TrimSpace(line)
+			ts[len(ts)-1].Multiline = true
+			continue
+		}
+		m := trailerLineRe.FindStringSubmatch(line)
+		if m == nil {
+			return nil
+		}
+		ts = append(ts, Trailer{Key: m[1], Value: strings.TrimSpace(m[2])})
+	}
+	return ts
+}
+
+// lastParagraph returns the lines of the last paragraph, or nil when the
+// message has fewer than two paragraphs.
+func lastParagraph(msg string) []string {
+	lines := strings.Split(strings.TrimRight(msg, "\n"), "\n")
+	last := len(lines)
+	for last > 0 && strings.TrimSpace(lines[last-1]) == "" {
+		last--
+	}
+	if last == 0 {
+		return nil
+	}
+	start := last
+	for start > 0 && strings.TrimSpace(lines[start-1]) != "" {
+		start--
+	}
+	if start == 0 {
+		return nil // single paragraph: subject, not a trailer block
+	}
+	return lines[start:last]
+}
+
+func isContinuation(line string) bool {
+	return line != "" && (line[0] == ' ' || line[0] == '\t')
+}
+
+// HasContextWhy reports whether msg's trailer block carries a non-empty
+// Context-Why value. Keys match case-insensitively.
+func HasContextWhy(msg string) bool {
+	for _, t := range Parse(msg) {
+		if strings.EqualFold(t.Key, KeyWhy) && t.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidScope reports whether s satisfies the scope slug grammar:
+// lowercase/digit/hyphen segments separated by "/".
+func ValidScope(s string) bool {
+	return scopeRe.MatchString(s)
+}
+
+// StripComments removes lines starting with commentChar, so hook-injected
+// draft comments are not mistaken for accepted content.
+func StripComments(msg, commentChar string) string {
+	var out []string
+	for _, line := range strings.Split(msg, "\n") {
+		if strings.HasPrefix(line, commentChar) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+// Template returns empty trailer stubs for manual fill-in.
+func Template() []string {
+	return []string{
+		KeyWhy + ": ",
+		KeyScope + ": ",
+	}
+}
+
+// Render formats trailers as "Key: Value" lines.
+func Render(ts []Trailer) []string {
+	lines := make([]string, len(ts))
+	for i, t := range ts {
+		lines[i] = t.Key + ": " + t.Value
+	}
+	return lines
+}
+
+// CommentLines prefixes each line with the comment character, producing the
+// draft form a developer must uncomment to accept.
+func CommentLines(lines []string, commentChar string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = commentChar + " " + l
+	}
+	return out
+}
+
+// Violation codes reported by Lint.
+const (
+	CodeMissingWhy = "missing-why"
+	CodeBadScope   = "bad-scope"
+	CodeMultiline  = "multiline-value"
+	CodeMisplaced  = "misplaced-trailer"
+)
+
+// Violation is one lint finding.
+type Violation struct {
+	Code string
+	Msg  string
+}
+
+// Lint checks msg against the format's writer rules (design doc L4-L5):
+// a non-empty Context-Why must exist, scope slugs must match the grammar,
+// values must be single-line, and Context-* lines must live in the trailer
+// block. Callers strip comments first when linting an editor buffer.
+func Lint(msg string) []Violation {
+	var vs []Violation
+	ts := Parse(msg)
+
+	for _, line := range bodyLines(msg) {
+		if contextKeyRe.MatchString(strings.TrimSpace(line)) {
+			vs = append(vs, Violation{CodeMisplaced,
+				"Context-* line outside the trailer block (must be the last paragraph): " + strings.TrimSpace(line)})
+		}
+	}
+
+	hasWhy := false
+	for _, t := range ts {
+		isContext := strings.HasPrefix(strings.ToLower(t.Key), "context-")
+		if strings.EqualFold(t.Key, KeyWhy) && t.Value != "" {
+			hasWhy = true
+		}
+		if isContext && t.Multiline {
+			vs = append(vs, Violation{CodeMultiline, t.Key + " value spans multiple lines; keep it on one line and move detail to the body"})
+		}
+		if strings.EqualFold(t.Key, KeyScope) && !ValidScope(t.Value) {
+			vs = append(vs, Violation{CodeBadScope, "invalid scope slug " + strconvQuote(t.Value) + " (want lowercase segments like order/cancel)"})
+		}
+	}
+	if !hasWhy {
+		vs = append(vs, Violation{CodeMissingWhy, "no Context-Why trailer; add a one-line reason for this change"})
+	}
+	return vs
+}
+
+// bodyLines returns every line outside the trailer block.
+func bodyLines(msg string) []string {
+	lines := strings.Split(strings.TrimRight(msg, "\n"), "\n")
+	block := lastParagraph(msg)
+	if block == nil {
+		return lines
+	}
+	return lines[:len(lines)-len(block)]
+}
+
+func strconvQuote(s string) string {
+	return `"` + s + `"`
+}

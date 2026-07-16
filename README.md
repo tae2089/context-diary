@@ -14,7 +14,10 @@ Git is the source of truth. The server is a read-only index.
 
 1. **Convention + hook** — commits carry structured context in
    [git trailers](docs/trailer-format.md) (`Context-Why`, `Context-Scope`, …).
-   An AI-assisted hook helps write them.
+   AI coding agents (Claude Code, Codex, …) write them from a convention
+   snippet; a lint hook enforces them and feeds violations back so agents
+   self-correct. Humans get a template in the commit editor. No API calls —
+   everything runs locally.
 2. **Indexer** — on merge to the default branch, a webhook parses commit
    trailers, bodies, and PR descriptions into a local SQLite index.
 3. **MCP server** — exposes the index to AI assistants, so anyone — including
@@ -23,13 +26,20 @@ Git is the source of truth. The server is a read-only index.
 
 ## Status
 
-Early design. The [trailer format spec](docs/trailer-format.md) is the first
-stable artifact. Nothing is runnable yet.
+Early. The [trailer format spec](docs/trailer-format.md) and the
+`context-diary` CLI (hooks, lint, agent setup) are usable; the indexer and
+MCP server are not built yet.
+
+```sh
+go install github.com/tae2089/context-diary/cmd/context-diary@latest
+cd your-repo
+context-diary init --agent claude-code   # hooks + config + CLAUDE.md snippet
+```
 
 Roadmap:
 
 - [x] Trailer format spec (v0.1)
-- [ ] Commit hook / CLI (`context-diary` binary)
+- [x] Commit hook / CLI (`context-diary` binary)
 - [ ] Indexer (webhook + SQLite)
 - [ ] MCP server
 - [ ] Web UI (if demand proves out)
