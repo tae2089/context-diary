@@ -47,6 +47,19 @@ Roadmap:
 - [ ] MCP server
 - [ ] Web UI (if demand proves out)
 
+## Merge strategies
+
+Trailers must survive the path to your default branch. Pick one row:
+
+| Your merge strategy | What to do |
+| --- | --- |
+| Rebase merge | Nothing — commits land unchanged. |
+| Squash merge | Set GitHub squash default to **"Pull request title and description"** and write trailers in the PR description (the [PR lint action](examples/github-actions/pr-context-lint.yml) enforces this before merge). |
+| Merge commits | Index with `context-diary index --walk full` so side-branch commits are captured. |
+
+Either way, `context-diary lint` in CI on the default branch is the safety
+net that catches anything that slipped through.
+
 ## Design principles
 
 - **Git is the source of truth.** The server can be rebuilt from history at

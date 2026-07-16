@@ -25,6 +25,10 @@ the commit message:
 
 Every value fits on one line; put longer explanation in the commit body
 above the trailer block. Write at developer language level.
+
+When you open a pull request in a squash-merge repository, put the same
+trailers in the last paragraph of the PR description — the squash commit
+message is composed from it.
 `
 
 // Instructions returns the agent convention snippet.

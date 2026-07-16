@@ -143,9 +143,10 @@ The schema is shaped for three axes; the MCP server composes them:
 
 ## Limitations (recorded)
 
-- **L1 First-parent only.** Side-branch commits of a true merge are not
-  indexed individually; squash-merge workflows are unaffected. Revisit if a
-  target repo uses merge-heavy flow.
+- **L1 First-parent by default.** Side-branch commits of a true merge are
+  not indexed individually; squash-merge workflows are unaffected.
+  Merge-commit teams lift this with `index --walk full`, which indexes the
+  whole DAG (incremental via reachable-set difference from the cursor).
 - **L2 No PR body ingestion.** Roadmap item for the webhook phase — PR
   descriptions live in the forge, not git.
 - **L3 No function↔commit mapping.** Scope slugs are the lookup axis in v0;

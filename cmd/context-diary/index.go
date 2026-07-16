@@ -19,7 +19,12 @@ func cmdIndex(args []string) int {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	repoName := fs.String("repo", "", "repository name in the index (default: git top-level dir name)")
 	branch := fs.String("branch", "", "branch to index (default: HEAD)")
+	walk := fs.String("walk", "first-parent", "history walk: first-parent (squash/rebase teams) or full (merge-commit teams)")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *walk != "first-parent" && *walk != "full" {
+		warnf("invalid --walk %q (want first-parent or full)", *walk)
 		return 2
 	}
 
@@ -59,7 +64,11 @@ func cmdIndex(args []string) int {
 		return 1
 	}
 
-	commits, head, err := gitlog.Walk(top, *branch, cursor)
+	walkFn := gitlog.Walk
+	if *walk == "full" {
+		walkFn = gitlog.WalkFull
+	}
+	commits, head, err := walkFn(top, *branch, cursor)
 	if err != nil {
 		warnf("%v", err)
 		return 1

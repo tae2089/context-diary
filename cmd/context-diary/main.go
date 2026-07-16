@@ -23,6 +23,7 @@ Usage:
   context-diary hook prepare-commit-msg <file> [src [sha]]   (invoked by git)
   context-diary hook commit-msg <file>                       (invoked by git)
   context-diary lint <rev-range>                             validate trailers over commits (CI)
+  context-diary lint-message [file|-]                        lint a PR description / message body (default: stdin)
   context-diary scopes                                       list configured scopes
   context-diary index [--repo <name>] [--branch <name>]      index context trailers into Postgres
 
@@ -57,6 +58,8 @@ func run(args []string) int {
 			return 2
 		}
 		return cmdLint(args[1])
+	case "lint-message":
+		return cmdLintMessage(args[1:])
 	case "scopes":
 		return cmdScopes()
 	case "index":

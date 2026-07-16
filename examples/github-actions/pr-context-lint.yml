@@ -1,0 +1,21 @@
+# Validates that the PR description carries context-diary trailers, so a
+# "PR title & description" squash merge lands them in the commit message.
+# Copy into .github/workflows/ of your repository.
+name: PR context lint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go install github.com/tae2089/context-diary/cmd/context-diary@latest
+      - name: Lint PR description for context trailers
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$PR_BODY" | context-diary lint-message -
