@@ -24,6 +24,10 @@ Usage:
   context-diary hook commit-msg <file>                       (invoked by git)
   context-diary lint <rev-range>                             validate trailers over commits (CI)
   context-diary scopes                                       list configured scopes
+  context-diary index [--repo <name>] [--branch <name>]      index context trailers into Postgres
+
+Environment:
+  CONTEXT_DIARY_DB (or DATABASE_URL)   Postgres DSN for 'index'
 `
 
 func main() {
@@ -55,6 +59,8 @@ func run(args []string) int {
 		return cmdLint(args[1])
 	case "scopes":
 		return cmdScopes()
+	case "index":
+		return cmdIndex(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2
