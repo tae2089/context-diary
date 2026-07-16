@@ -1,0 +1,19 @@
+# Agent workspace (task state files, never committed)
+_workspace/
+
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
