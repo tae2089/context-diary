@@ -5,13 +5,20 @@ package gitlog
 
 import (
 	"fmt"
+	"io"
 	"sort"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/tae2089/context-diary/internal/index"
 )
+
+// NotesRef is the git notes ref carrying backfilled context
+// (docs/backfill.md): trailer lines attached to pre-adoption commits
+// without rewriting history.
+const NotesRef = "refs/notes/context-diary"
 
 // WalkFull returns every commit reachable from branch but not from
 // sinceHash — the whole DAG including side branches of merge commits —
@@ -21,6 +28,10 @@ import (
 // DAG; over-collection is harmless (store dedups on conflict).
 func WalkFull(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
 	repo, err := openRepo(repoPath)
+	if err != nil {
+		return nil, "", err
+	}
+	notes, err := loadNotes(repo)
 	if err != nil {
 		return nil, "", err
 	}
@@ -72,6 +83,7 @@ func WalkFull(repoPath, branch, sinceHash string) ([]index.Commit, string, error
 		commits = append(commits, index.Commit{
 			Hash:        c.Hash.String(),
 			Message:     c.Message,
+			Note:        notes[c.Hash.String()],
 			AuthorName:  c.Author.Name,
 			AuthorEmail: c.Author.Email,
 			CommittedAt: c.Committer.When.UTC(),
@@ -104,6 +116,10 @@ func Walk(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	notes, err := loadNotes(repo)
+	if err != nil {
+		return nil, "", err
+	}
 
 	rev := "HEAD"
 	if branch != "" {
@@ -126,6 +142,7 @@ func Walk(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
 		newestFirst = append(newestFirst, index.Commit{
 			Hash:        c.Hash.String(),
 			Message:     c.Message,
+			Note:        notes[c.Hash.String()],
 			AuthorName:  c.Author.Name,
 			AuthorEmail: c.Author.Email,
 			CommittedAt: c.Committer.When.UTC(),
@@ -158,4 +175,63 @@ func openRepo(repoPath string) (*git.Repository, error) {
 		return nil, fmt.Errorf("open repo %s: %w", repoPath, err)
 	}
 	return repo, nil
+}
+
+// loadNotes reads the context notes ref into a commit-sha → note-text map.
+// Git stores notes as a tree whose entries are named by the annotated
+// commit's hex sha, either flat ("<40-hex>") or fanned out ("ab/<38-hex>",
+// possibly nested); path segments concatenate to the sha. A missing ref
+// yields an empty map.
+func loadNotes(repo *git.Repository) (map[string]string, error) {
+	ref, err := repo.Reference(plumbing.ReferenceName(NotesRef), true)
+	if err != nil {
+		return map[string]string{}, nil // no notes ref
+	}
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("read notes commit: %w", err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("read notes tree: %w", err)
+	}
+	notes := map[string]string{}
+	if err := collectNotes(repo, tree, "", notes); err != nil {
+		return nil, err
+	}
+	return notes, nil
+}
+
+func collectNotes(repo *git.Repository, tree *object.Tree, prefix string, notes map[string]string) error {
+	for _, entry := range tree.Entries {
+		name := prefix + entry.Name
+		if entry.Mode.IsFile() {
+			if len(name) != 40 {
+				continue // non-note bookkeeping entry
+			}
+			blob, err := repo.BlobObject(entry.Hash)
+			if err != nil {
+				return fmt.Errorf("read note blob %s: %w", name, err)
+			}
+			r, err := blob.Reader()
+			if err != nil {
+				return fmt.Errorf("open note blob %s: %w", name, err)
+			}
+			b, err := io.ReadAll(r)
+			r.Close()
+			if err != nil {
+				return fmt.Errorf("read note %s: %w", name, err)
+			}
+			notes[name] = string(b)
+			continue
+		}
+		sub, err := repo.TreeObject(entry.Hash)
+		if err != nil {
+			return fmt.Errorf("read notes subtree %s: %w", name, err)
+		}
+		if err := collectNotes(repo, sub, name, notes); err != nil {
+			return err
+		}
+	}
+	return nil
 }

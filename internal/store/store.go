@@ -120,21 +120,40 @@ func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.
 	inserted := 0
 	for _, e := range entries {
 		var commitID int64
+		// Upsert-on-change: RETURNING fires only for a new row or when the
+		// content actually differs (e.g. an edited backfill note), so
+		// identical re-runs stay no-ops and children are rebuilt only when
+		// needed.
 		err := tx.QueryRow(ctx, `
 			INSERT INTO commits (repo_id, hash, subject, body, author_name, author_email, committed_at, context_why)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (repo_id, hash) DO NOTHING
+			ON CONFLICT (repo_id, hash) DO UPDATE SET
+				subject = EXCLUDED.subject,
+				body = EXCLUDED.body,
+				context_why = EXCLUDED.context_why
+			WHERE commits.subject IS DISTINCT FROM EXCLUDED.subject
+			   OR commits.body IS DISTINCT FROM EXCLUDED.body
+			   OR commits.context_why IS DISTINCT FROM EXCLUDED.context_why
 			RETURNING id`,
 			repoID, e.Hash, sanitize(e.Subject), sanitize(e.Message),
 			sanitize(e.AuthorName), sanitize(e.AuthorEmail), e.CommittedAt, sanitize(e.Why),
 		).Scan(&commitID)
 		if err == pgx.ErrNoRows {
-			continue // already indexed
+			continue // already indexed with identical content
 		}
 		if err != nil {
 			return 0, fmt.Errorf("insert commit %s: %w", e.Hash, err)
 		}
 		inserted++
+
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM commit_scopes WHERE commit_id = $1`, commitID); err != nil {
+			return 0, fmt.Errorf("clear scopes: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM commit_details WHERE commit_id = $1`, commitID); err != nil {
+			return 0, fmt.Errorf("clear details: %w", err)
+		}
 
 		for _, scope := range e.Scopes {
 			if _, err := tx.Exec(ctx,

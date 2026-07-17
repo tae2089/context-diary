@@ -25,7 +25,8 @@ Usage:
   context-diary lint <rev-range>                             validate trailers over commits (CI)
   context-diary lint-message [file|-]                        lint a PR description / message body (default: stdin)
   context-diary scopes                                       list configured scopes
-  context-diary index [--repo <name>] [--branch <name>]      index context trailers into Postgres
+  context-diary index [--repo <name>] [--rescan]              index context trailers into Postgres
+  context-diary backfill [--branch <name>]                    list commits lacking context (for note backfill)
   context-diary serve [--addr :8080]                          GitHub PR bot + MCP endpoint
 
 Environment:
@@ -69,6 +70,8 @@ func run(args []string) int {
 		return cmdIndex(args[1:])
 	case "serve":
 		return cmdServe(args[1:])
+	case "backfill":
+		return cmdBackfill(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2

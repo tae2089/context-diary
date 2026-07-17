@@ -27,6 +27,7 @@ func cmdIndex(args []string) int {
 	repoName := fs.String("repo", "", "repository name in the index (default: git top-level dir name)")
 	branch := fs.String("branch", "", "branch to index (default: HEAD)")
 	walk := fs.String("walk", "first-parent", "history walk: first-parent (squash/rebase teams) or full (merge-commit teams)")
+	rescan := fs.Bool("rescan", false, "ignore the cursor and rescan the whole history (picks up edited backfill notes)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -67,6 +68,7 @@ func cmdIndex(args []string) int {
 		RepoName: *repoName,
 		Branch:   *branch,
 		WalkFull: *walk == "full",
+		Rescan:   *rescan,
 	})
 	if err != nil {
 		warnf("%v", err)

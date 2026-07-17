@@ -18,6 +18,7 @@ type Options struct {
 	RepoName string // identity in the index
 	Branch   string // empty = HEAD
 	WalkFull bool   // full DAG instead of first-parent
+	Rescan   bool   // ignore the cursor: rescan everything (backfill notes)
 }
 
 // Result reports what happened.
@@ -33,6 +34,9 @@ func Run(ctx context.Context, s *store.Store, opts Options) (Result, error) {
 	repoID, cursor, err := s.UpsertRepo(ctx, opts.RepoName)
 	if err != nil {
 		return Result{}, err
+	}
+	if opts.Rescan {
+		cursor = "" // full history; upsert-on-change dedups unchanged rows
 	}
 
 	walk := gitlog.Walk

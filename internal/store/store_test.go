@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,6 +175,26 @@ func TestSaveAndSearch(t *testing.T) {
 		if r.Hash == "ccc333" {
 			t.Error("unrelated Korean query matched")
 		}
+	}
+
+	// upsert-on-change: edited content (e.g. backfill note) refreshes the row
+	changed := entry("aaa111", "refund raced with settlement — corrected wording", t0, "order/refund")
+	n, err = s.SaveEntries(ctx, repoID, []*index.Entry{changed}, "bbb222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("changed entry upsert = %d, want 1", n)
+	}
+	rs, err = s.Search(ctx, "acme/shop", Query{Scope: "order/refund"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 || !strings.Contains(rs[0].Why, "corrected wording") || len(rs[0].Scopes) != 1 {
+		t.Errorf("upserted entry not refreshed: %+v", rs)
+	}
+	if rs2, _ := s.Search(ctx, "acme/shop", Query{Scope: "order/cancel"}); len(rs2) != 0 {
+		t.Error("stale scope survived children rebuild")
 	}
 
 	scopes, err := s.ListScopes(ctx, "acme/shop")

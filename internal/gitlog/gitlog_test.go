@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -192,6 +193,52 @@ func TestWalkFullIncremental(t *testing.T) {
 	}
 	if len(commits) != 0 {
 		t.Errorf("up-to-date full walk = %d commits, want 0", len(commits))
+	}
+}
+
+func TestWalkAttachesNotes(t *testing.T) {
+	dir, hashes := buildRepo(t)
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.local",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.local",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("notes", "--ref="+NotesRef, "add", "-m",
+		"Context-Why: backfilled reason\nContext-Scope: legacy/area", hashes[1])
+
+	commits, _, err := Walk(dir, "main", "")
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	byHash := map[string]string{}
+	for _, c := range commits {
+		byHash[c.Hash] = c.Note
+	}
+	if !strings.Contains(byHash[hashes[1]], "Context-Why: backfilled reason") {
+		t.Errorf("note not attached to %s: %q", hashes[1], byHash[hashes[1]])
+	}
+	if byHash[hashes[0]] != "" || byHash[hashes[2]] != "" {
+		t.Errorf("notes leaked to other commits: %v", byHash)
+	}
+}
+
+func TestWalkNoNotesRef(t *testing.T) {
+	dir, _ := buildRepo(t)
+	commits, _, err := Walk(dir, "main", "")
+	if err != nil {
+		t.Fatalf("Walk without notes ref: %v", err)
+	}
+	for _, c := range commits {
+		if c.Note != "" {
+			t.Errorf("unexpected note on %s", c.Hash)
+		}
 	}
 }
 

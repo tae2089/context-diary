@@ -69,6 +69,42 @@ func TestEntryFromCommitSkipsNonContext(t *testing.T) {
 	}
 }
 
+func TestEntryFromCommitNoteBackfill(t *testing.T) {
+	// note provides context for a commit that has none
+	c := meta("chore: legacy change\n\nold body\n")
+	c.Note = "Context-Why: backfilled reason\nContext-Scope: legacy/area\nContext-Decision: kept as-is; risk too high\n"
+	e := EntryFromCommit(c)
+	if e == nil {
+		t.Fatal("note-backfilled commit not indexed")
+	}
+	if e.Why != "backfilled reason" {
+		t.Errorf("why = %q", e.Why)
+	}
+	if len(e.Scopes) != 1 || e.Scopes[0] != "legacy/area" || len(e.Decisions) != 1 {
+		t.Errorf("note trailers not applied: %+v", e)
+	}
+
+	// commit trailers win: note is ignored when the message has Context-Why
+	c2 := meta("fix: x\n\nContext-Why: authored reason\nContext-Scope: real/scope\n")
+	c2.Note = "Context-Why: stale note\nContext-Scope: wrong/scope\n"
+	e2 := EntryFromCommit(c2)
+	if e2 == nil || e2.Why != "authored reason" {
+		t.Fatalf("commit trailers must win: %+v", e2)
+	}
+	for _, s := range e2.Scopes {
+		if s == "wrong/scope" {
+			t.Error("note scope leaked into authored entry")
+		}
+	}
+
+	// note without Context-Why does not index the commit
+	c3 := meta("chore: y\n\nbody\n")
+	c3.Note = "Context-Scope: only/scope\n"
+	if e3 := EntryFromCommit(c3); e3 != nil {
+		t.Errorf("scope-only note should not index: %+v", e3)
+	}
+}
+
 func TestEntryFromCommitScopeHygiene(t *testing.T) {
 	msg := "fix: x\n\nContext-Why: y\nContext-Scope: order/cancel\nContext-Scope: order/cancel\nContext-Scope: Bad Slug\n"
 	e := EntryFromCommit(meta(msg))
