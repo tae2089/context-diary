@@ -11,15 +11,17 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Commit is one point in a function's history.
 type Commit struct {
-	Hash    string
-	Subject string
+	Hash        string
+	Subject     string
+	CommittedAt time.Time
 }
 
-var hashLine = regexp.MustCompile(`^([0-9a-f]{40})\t(.*)$`)
+var hashLine = regexp.MustCompile(`^([0-9a-f]{40})\t([^\t]*)\t(.*)$`)
 
 // CommitsTouching returns the commits on branch that changed the named
 // function in file, oldest first. Function matching uses git's language-
@@ -32,7 +34,7 @@ func CommitsTouching(repoPath, branch, file, function string) ([]Commit, error) 
 	// -L implies patch output; the %H<TAB>%s format line is filtered back
 	// out below. --no-textconv keeps binary-adjacent configs from breaking.
 	cmd := exec.Command("git", "log",
-		"--format=%H%x09%s",
+		"--format=%H%x09%cI%x09%s",
 		"-L", fmt.Sprintf(":%s:%s", function, file),
 		rev)
 	cmd.Dir = repoPath
@@ -47,7 +49,8 @@ func CommitsTouching(repoPath, branch, file, function string) ([]Commit, error) 
 	var newestFirst []Commit
 	for _, line := range strings.Split(out.String(), "\n") {
 		if m := hashLine.FindStringSubmatch(line); m != nil {
-			newestFirst = append(newestFirst, Commit{Hash: m[1], Subject: m[2]})
+			at, _ := time.Parse(time.RFC3339, m[2]) // zero time on parse failure is acceptable display data
+			newestFirst = append(newestFirst, Commit{Hash: m[1], Subject: m[3], CommittedAt: at})
 		}
 	}
 	oldest := make([]Commit, len(newestFirst))

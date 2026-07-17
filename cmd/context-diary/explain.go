@@ -73,9 +73,9 @@ func cmdExplain(args []string) int {
 		byHash[r.Hash] = r
 	}
 
-	fmt.Printf("%s — %s: %d change(s)\n\n", file, function, len(commits))
+	fmt.Printf("%s — %s: %d change(s), oldest → newest\n\n", file, function, len(commits))
 	for _, c := range commits {
-		fmt.Printf("%s  %s\n", short(c.Hash), c.Subject)
+		fmt.Printf("%s  %s  %s\n", c.CommittedAt.Format("2006-01-02"), short(c.Hash), c.Subject)
 		r, ok := byHash[c.Hash]
 		if !ok {
 			fmt.Printf("    (no context — candidate for backfill, see docs/backfill.md)\n\n")

@@ -179,15 +179,18 @@ func NewServer(deps Deps) *mcp.Server {
 			for _, r := range indexed {
 				byHash[r.Hash] = r
 			}
-			out := explainResult{Function: args.Function, File: args.File}
+			out := explainResult{Function: args.Function, File: args.File, Order: "oldest_first"}
 			for _, c := range commits {
-				p := explainPoint{Hash: c.Hash, Subject: c.Subject}
+				p := explainPoint{
+					Hash:        c.Hash,
+					Subject:     c.Subject,
+					CommittedAt: c.CommittedAt.Format(time.RFC3339),
+				}
 				if r, ok := byHash[c.Hash]; ok {
 					p.HasContext = true
 					p.Why = r.Why
 					p.Scopes = r.Scopes
 					p.Decisions = r.Decisions
-					p.CommittedAt = r.CommittedAt.Format(time.RFC3339)
 				}
 				out.Timeline = append(out.Timeline, p)
 			}
@@ -214,16 +217,17 @@ type explainArgs struct {
 type explainPoint struct {
 	Hash        string   `json:"hash"`
 	Subject     string   `json:"subject"`
+	CommittedAt string   `json:"committed_at"`
 	HasContext  bool     `json:"has_context"`
 	Why         string   `json:"why,omitempty"`
 	Scopes      []string `json:"scopes,omitempty"`
 	Decisions   []string `json:"decisions,omitempty"`
-	CommittedAt string   `json:"committed_at,omitempty"`
 }
 
 type explainResult struct {
 	File     string         `json:"file"`
 	Function string         `json:"function"`
+	Order    string         `json:"order"` // always "oldest_first"
 	Timeline []explainPoint `json:"timeline"`
 	// ReferencedBy: entries in other repositories whose Context-Ref code
 	// refs point at this function ("this decision concerns you").
