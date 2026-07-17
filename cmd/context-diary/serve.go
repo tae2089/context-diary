@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,16 +22,26 @@ import (
 	"github.com/tae2089/context-diary/internal/mcptool"
 	"github.com/tae2089/context-diary/internal/mirror"
 	"github.com/tae2089/context-diary/internal/preview"
+	"github.com/tae2089/context-diary/internal/queue"
 	"github.com/tae2089/context-diary/internal/store"
+	"github.com/tae2089/context-diary/internal/trailer"
 )
 
 const serveVersion = "0.1.0"
 
+// Status contexts shown in the GitHub UI.
+const (
+	statusContextLint   = "context-diary/context"
+	statusContextIngest = "context-diary/ingest"
+)
+
 // serveDeps makes the webhook handler testable without network or DB.
 type serveDeps struct {
-	secret   []byte
-	comment  func(ctx context.Context, fullName string, number int, body string) error
-	ingestPR func(ctx context.Context, ev *github.PREvent) (ingest.Result, error)
+	secret  []byte
+	comment func(ctx context.Context, fullName string, number int, body string) error
+	status  func(ctx context.Context, fullName, sha, state, statusContext, description string) error
+	// enqueue schedules async ingestion for a merged PR; false = queue full.
+	enqueue func(ev *github.PREvent) bool
 }
 
 // cmdServe runs the GitHub PR bot + MCP endpoint (docs/serve-design.md).
@@ -85,22 +96,66 @@ func cmdServe(args []string) int {
 	}
 
 	gh := github.NewClient("", token)
+
+	// Pending merged-PR events keyed by repo; the queue carries keys only,
+	// per-repo FIFO of events lives here.
+	var pmu sync.Mutex
+	pending := map[string][]*github.PREvent{}
+
+	runIngest := func(ctx context.Context, key string) {
+		pmu.Lock()
+		evs := pending[key]
+		delete(pending, key)
+		pmu.Unlock()
+		for _, ev := range evs {
+			path, err := mirror.Sync(*cacheDir, ev.FullName, ev.CloneURL, token)
+			var res ingest.Result
+			if err == nil {
+				res, err = ingest.Run(ctx, s, ingest.Options{
+					RepoPath: path,
+					RepoName: ev.FullName,
+					Branch:   ev.DefaultBranch,
+					WalkFull: *walk == "full",
+				})
+			}
+			state, desc := github.StatusSuccess, fmt.Sprintf("indexed %d entries (%d scanned)", res.Inserted, res.Scanned)
+			if err != nil {
+				state, desc = github.StatusError, err.Error()
+				log.Printf("ingest %s: %v", ev.FullName, err)
+			} else {
+				log.Printf("ingested %s: %d entries (%d scanned)", ev.FullName, res.Inserted, res.Scanned)
+			}
+			if ev.MergeCommitSHA != "" {
+				if serr := gh.SetStatus(ctx, ev.FullName, ev.MergeCommitSHA, state, statusContextIngest, desc); serr != nil {
+					log.Printf("set ingest status %s: %v", ev.FullName, serr)
+				}
+			}
+		}
+	}
+	q := queue.New(4, 256, runIngest)
+	q.Start(ctx)
+
 	deps := serveDeps{
 		secret: []byte(secret),
 		comment: func(ctx context.Context, fullName string, number int, body string) error {
 			return gh.UpsertComment(ctx, fullName, number, preview.Marker, body)
 		},
-		ingestPR: func(ctx context.Context, ev *github.PREvent) (ingest.Result, error) {
-			path, err := mirror.Sync(*cacheDir, ev.FullName, ev.CloneURL, token)
-			if err != nil {
-				return ingest.Result{}, err
+		status: gh.SetStatus,
+		enqueue: func(ev *github.PREvent) bool {
+			pmu.Lock()
+			pending[ev.FullName] = append(pending[ev.FullName], ev)
+			pmu.Unlock()
+			if q.Enqueue(ev.FullName) {
+				return true
 			}
-			return ingest.Run(ctx, s, ingest.Options{
-				RepoPath: path,
-				RepoName: ev.FullName,
-				Branch:   ev.DefaultBranch,
-				WalkFull: *walk == "full",
-			})
+			// roll back the pending entry we just added
+			pmu.Lock()
+			evs := pending[ev.FullName]
+			if len(evs) > 0 {
+				pending[ev.FullName] = evs[:len(evs)-1]
+			}
+			pmu.Unlock()
+			return false
 		},
 	}
 
@@ -129,6 +184,12 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// bodyClean reports whether a PR description passes the trailer lint
+// (same composition rule as lint-message: synthetic subject + body).
+func bodyClean(prBody string) bool {
+	return len(trailer.Lint("subject\n\n"+prBody)) == 0
 }
 
 // webhookHandler implements flows W1-W9 and M1-M7 of docs/serve-design.md.
@@ -161,16 +222,30 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 				http.Error(w, "comment failed", http.StatusBadGateway)
 				return
 			}
+			// Lint status on the head SHA lets branch protection require it.
+			if ev.HeadSHA != "" {
+				state, desc := github.StatusSuccess, "context trailers present"
+				if !bodyClean(ev.Body) {
+					state, desc = github.StatusFailure, "PR description is missing context trailers (see bot comment)"
+				}
+				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, desc); err != nil {
+					log.Printf("set lint status %s#%d: %v", ev.FullName, ev.Number, err)
+				}
+			}
 			fmt.Fprintln(w, "comment updated")
 		case ev.Action == "closed" && ev.Merged:
-			res, err := deps.ingestPR(r.Context(), ev)
-			if err != nil {
-				log.Printf("ingest %s: %v", ev.FullName, err)
-				http.Error(w, "ingest failed", http.StatusInternalServerError)
+			if !deps.enqueue(ev) {
+				http.Error(w, "ingest queue full, retry later", http.StatusServiceUnavailable)
 				return
 			}
-			log.Printf("ingested %s: %d entries (%d scanned)", ev.FullName, res.Inserted, res.Scanned)
-			fmt.Fprintf(w, "indexed %d entries\n", res.Inserted)
+			if ev.MergeCommitSHA != "" {
+				if err := deps.status(r.Context(), ev.FullName, ev.MergeCommitSHA,
+					github.StatusPending, statusContextIngest, "ingest queued"); err != nil {
+					log.Printf("set pending status %s: %v", ev.FullName, err)
+				}
+			}
+			w.WriteHeader(http.StatusAccepted)
+			fmt.Fprintln(w, "ingest queued")
 		default:
 			fmt.Fprintln(w, "ignored")
 		}

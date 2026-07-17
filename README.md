@@ -24,8 +24,10 @@ Git is the source of truth. The server is a read-only index.
    re-index to rebuild everything from git.
 3. **Server** (`context-diary serve`) — one deployment for the whole org:
    - a GitHub PR bot that reviews PR descriptions Atlantis-style (one
-     bot comment: index preview when clean, template when not) and indexes
-     merges the moment they land;
+     bot comment: index preview when clean, template when not), sets a
+     `context-diary/context` commit status you can require via branch
+     protection, and indexes merges asynchronously with a
+     `context-diary/ingest` status (pending → success) on the merge commit;
    - an MCP endpoint (`/mcp`) exposing `search_context` / `list_scopes`, so
      anyone — including non-developers — can ask "why does order cancellation
      work this way?" from their AI assistant and get an answer translated to

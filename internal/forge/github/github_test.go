@@ -40,6 +40,8 @@ func TestParsePREvent(t *testing.T) {
 		"pull_request": {
 			"body": "PR body text",
 			"merged": false,
+			"merge_commit_sha": "mmm999",
+			"head": {"sha": "hhh111"},
 			"base": {"repo": {
 				"full_name": "acme/shop",
 				"clone_url": "https://github.com/acme/shop.git",
@@ -53,8 +55,29 @@ func TestParsePREvent(t *testing.T) {
 	}
 	if ev.Action != "edited" || ev.Number != 7 || ev.FullName != "acme/shop" ||
 		ev.Body != "PR body text" || ev.Merged || ev.DefaultBranch != "main" ||
-		ev.CloneURL != "https://github.com/acme/shop.git" {
+		ev.CloneURL != "https://github.com/acme/shop.git" ||
+		ev.HeadSHA != "hhh111" || ev.MergeCommitSHA != "mmm999" {
 		t.Errorf("parsed event = %+v", ev)
+	}
+}
+
+func TestSetStatus(t *testing.T) {
+	var got map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/repos/acme/shop/statuses/abc123" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(201)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	if err := c.SetStatus(t.Context(), "acme/shop", "abc123", StatusSuccess, "context-diary/ingest", "indexed 3 entries"); err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	if got["state"] != "success" || got["context"] != "context-diary/ingest" || got["description"] != "indexed 3 entries" {
+		t.Errorf("status body = %v", got)
 	}
 }
 

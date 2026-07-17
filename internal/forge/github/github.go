@@ -35,13 +35,15 @@ func ValidSignature(secret, body []byte, sigHeader string) bool {
 
 // PREvent is the subset of a pull_request webhook payload serve needs.
 type PREvent struct {
-	Action        string
-	Number        int
-	Body          string
-	Merged        bool
-	FullName      string // "owner/repo"
-	CloneURL      string
-	DefaultBranch string
+	Action         string
+	Number         int
+	Body           string
+	Merged         bool
+	HeadSHA        string // PR head — lint status target
+	MergeCommitSHA string // set once merged — ingest status target
+	FullName       string // "owner/repo"
+	CloneURL       string
+	DefaultBranch  string
 }
 
 // ParsePREvent extracts a PREvent from a verified payload.
@@ -50,9 +52,13 @@ func ParsePREvent(payload []byte) (*PREvent, error) {
 		Action      string `json:"action"`
 		Number      int    `json:"number"`
 		PullRequest struct {
-			Body   string `json:"body"`
-			Merged bool   `json:"merged"`
-			Base   struct {
+			Body           string `json:"body"`
+			Merged         bool   `json:"merged"`
+			MergeCommitSHA string `json:"merge_commit_sha"`
+			Head           struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
+			Base struct {
 				Repo struct {
 					FullName      string `json:"full_name"`
 					CloneURL      string `json:"clone_url"`
@@ -65,13 +71,15 @@ func ParsePREvent(payload []byte) (*PREvent, error) {
 		return nil, fmt.Errorf("parse pull_request payload: %w", err)
 	}
 	return &PREvent{
-		Action:        raw.Action,
-		Number:        raw.Number,
-		Body:          raw.PullRequest.Body,
-		Merged:        raw.PullRequest.Merged,
-		FullName:      raw.PullRequest.Base.Repo.FullName,
-		CloneURL:      raw.PullRequest.Base.Repo.CloneURL,
-		DefaultBranch: raw.PullRequest.Base.Repo.DefaultBranch,
+		Action:         raw.Action,
+		Number:         raw.Number,
+		Body:           raw.PullRequest.Body,
+		Merged:         raw.PullRequest.Merged,
+		HeadSHA:        raw.PullRequest.Head.SHA,
+		MergeCommitSHA: raw.PullRequest.MergeCommitSHA,
+		FullName:       raw.PullRequest.Base.Repo.FullName,
+		CloneURL:       raw.PullRequest.Base.Repo.CloneURL,
+		DefaultBranch:  raw.PullRequest.Base.Repo.DefaultBranch,
 	}, nil
 }
 
@@ -121,6 +129,28 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
+}
+
+// Status states accepted by the GitHub statuses API.
+const (
+	StatusPending = "pending"
+	StatusSuccess = "success"
+	StatusFailure = "failure"
+	StatusError   = "error"
+)
+
+// SetStatus posts a commit status (docs/serve-design.md §Statuses).
+// description is truncated to GitHub's 140-char limit.
+func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusContext, description string) error {
+	if len(description) > 140 {
+		description = description[:137] + "..."
+	}
+	return c.do(ctx, "POST", fmt.Sprintf("/repos/%s/statuses/%s", fullName, sha),
+		map[string]string{
+			"state":       state,
+			"context":     statusContext,
+			"description": description,
+		}, nil)
 }
 
 // UpsertComment maintains exactly one bot comment per PR, identified by

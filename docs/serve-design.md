@@ -1,6 +1,6 @@
-# Serve Design v0.1 — GitHub PR Bot + MCP Endpoint
+# Serve Design v0.2 — GitHub PR Bot + MCP Endpoint
 
-Status: Draft
+Status: Draft (v0.2: async ingest queue + commit statuses)
 Depends on: [Indexer Design v0.1](indexer-design.md), [Trailer Format v0.1](trailer-format.md)
 
 ## Goal
@@ -42,7 +42,13 @@ W5  render ONE comment:
       dirty  -> violations + copy-paste template block
 W6  CALL GitHub: find bot comment by marker in first page of comments
 W7    found -> PATCH comment; not found -> POST comment
-W8    IF GitHub call fails -> 502 logged; GitHub redelivers on retry
+W8    IF GitHub call fails -> 502 logged (redelivery is MANUAL on GitHub;
+      the next PR event retries naturally)
+W8a CALL set commit status on head SHA: context-diary/context
+      success "context trailers present" | failure "missing trailers"
+      -> branch protection can REQUIRE this status, blocking merge harder
+         than the comment can
+W8b   IF status call fails -> log only (comment is the primary UX)
 W9  200
 ```
 
@@ -54,17 +60,31 @@ updated in place — no comment spam across pushes.
 ```text
 M1  verify signature (as W1-W2)
 M2  parse; IF merged != true -> 200 "ignored"
-M3  sync bare mirror: clone once into cache-dir, else fetch (token auth)
-M4    IF sync fails -> 500 logged (redelivery retries)
-M5  ingest.Run(store, mirror, repoName, default branch, walk mode)
+M3  enqueue {repo, event} on the ingest queue (bounded, in-memory)
+M4    IF queue full -> 503 (operator signal; no partial side effects)
+M5  set commit status on merge SHA: context-diary/ingest = pending
+M6  202 "ingest queued"                      (webhook never waits on git/db)
+
+worker (per-repo serialized, cross-repo parallel):
+M7  sync bare mirror: clone once into cache-dir, else fetch (token auth)
+M8  ingest.Run(store, mirror, repoName, default branch, walk mode)
       — identical path to `context-diary index`: cursor, ON CONFLICT dedup
-M6    IF ingest fails -> 500 logged
-M7  200 with inserted count
+M9  set status on merge SHA:
+      success "indexed N entries" | error <reason>
+      (terminal status always set on error paths so pending never dangles)
 ```
 
-Inline (no queue): GitHub webhook timeout is 10s; incremental fetch+index is
-sub-second in steady state. First delivery per repo pays the full clone —
-acceptable MVP cost, revisit with a queue if a target repo proves too large.
+### Async queue semantics (v0.2)
+
+Atlantis-shaped: ACK immediately, work in background goroutines, in-memory
+only. A restart drops queued jobs — accepted because the cursor makes the
+next merge (or a manual `context-diary index`) catch up losslessly; the
+worst case is a `pending` status that never resolves on that one commit.
+GitHub does NOT auto-redeliver failed webhooks (manual redelivery only), so
+the 10s webhook timeout is the hard reason to queue: the first delivery for
+a repo pays a full clone, which can exceed it inline. Capacity 256, 4
+workers, per-repo mutex (same-repo jobs serialize; the cursor makes
+concurrent same-repo ingests wasteful, not wrong).
 
 ## MCP endpoint
 
