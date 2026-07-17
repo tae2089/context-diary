@@ -132,7 +132,24 @@ func TestSaveAndSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search all: %v", err)
 	}
-	if len(rs) != 2 || rs[0].Hash != "bbb222" {
+	if len(rs) != 2 || rs[0].Hash != "bbb222" || rs[0].Repo != "acme/shop" {
 		t.Errorf("all search order = %+v", rs)
+	}
+
+	// empty repo → cross-repo search
+	rs, err = s.Search(ctx, "", Query{})
+	if err != nil {
+		t.Fatalf("Search cross-repo: %v", err)
+	}
+	if len(rs) != 2 {
+		t.Errorf("cross-repo search = %d results", len(rs))
+	}
+
+	scopes, err := s.ListScopes(ctx, "acme/shop")
+	if err != nil {
+		t.Fatalf("ListScopes: %v", err)
+	}
+	if len(scopes) != 3 || scopes[0].Scope != "inventory" || scopes[0].Count != 1 {
+		t.Errorf("scopes = %+v", scopes)
 	}
 }

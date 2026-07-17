@@ -7,11 +7,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tae2089/context-diary/internal/gitlog"
 	"github.com/tae2089/context-diary/internal/gitx"
-	"github.com/tae2089/context-diary/internal/index"
+	"github.com/tae2089/context-diary/internal/ingest"
 	"github.com/tae2089/context-diary/internal/store"
 )
+
+// dsnFromEnv resolves the Postgres DSN (design: env only, never config files).
+func dsnFromEnv() string {
+	if dsn := os.Getenv("CONTEXT_DIARY_DB"); dsn != "" {
+		return dsn
+	}
+	return os.Getenv("DATABASE_URL")
+}
 
 // cmdIndex implements the ingestion flow (docs/indexer-design.md X1-X22).
 // Interactive command: failures are loud (exit 1), unlike the hooks.
@@ -28,10 +35,7 @@ func cmdIndex(args []string) int {
 		return 2
 	}
 
-	dsn := os.Getenv("CONTEXT_DIARY_DB")
-	if dsn == "" {
-		dsn = os.Getenv("DATABASE_URL")
-	}
+	dsn := dsnFromEnv()
 	if dsn == "" {
 		warnf("set CONTEXT_DIARY_DB (or DATABASE_URL) to a Postgres DSN")
 		return 1
@@ -58,39 +62,21 @@ func cmdIndex(args []string) int {
 		return 1
 	}
 
-	repoID, cursor, err := s.UpsertRepo(ctx, *repoName)
+	res, err := ingest.Run(ctx, s, ingest.Options{
+		RepoPath: top,
+		RepoName: *repoName,
+		Branch:   *branch,
+		WalkFull: *walk == "full",
+	})
 	if err != nil {
 		warnf("%v", err)
 		return 1
 	}
-
-	walkFn := gitlog.Walk
-	if *walk == "full" {
-		walkFn = gitlog.WalkFull
-	}
-	commits, head, err := walkFn(top, *branch, cursor)
-	if err != nil {
-		warnf("%v", err)
-		return 1
-	}
-
-	var entries []*index.Entry
-	for _, c := range commits {
-		if e := index.EntryFromCommit(c); e != nil {
-			for _, dropped := range e.DroppedScopes {
-				warnf("%s: dropped invalid scope %q", c.Hash[:12], dropped)
-			}
-			entries = append(entries, e)
-		}
-	}
-
-	inserted, err := s.SaveEntries(ctx, repoID, entries, head)
-	if err != nil {
-		warnf("%v", err)
-		return 1
+	for _, w := range res.Warnings {
+		warnf("%s", w)
 	}
 	fmt.Printf("indexed %d entries (%d commits scanned) into %s @ %s\n",
-		inserted, len(commits), *repoName, short(head))
+		res.Inserted, res.Scanned, *repoName, short(res.Head))
 	return 0
 }
 

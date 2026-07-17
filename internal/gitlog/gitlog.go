@@ -20,9 +20,9 @@ import (
 // indexed individually. An empty or unreachable sinceHash yields the full
 // DAG; over-collection is harmless (store dedups on conflict).
 func WalkFull(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
-	repo, err := git.PlainOpenWithOptions(repoPath, &git.PlainOpenOptions{DetectDotGit: true})
+	repo, err := openRepo(repoPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("open repo %s: %w", repoPath, err)
+		return nil, "", err
 	}
 
 	rev := "HEAD"
@@ -100,9 +100,9 @@ func WalkFull(repoPath, branch, sinceHash string) ([]index.Commit, string, error
 // unreachable sinceHash yields the full first-parent line (design X11:
 // idempotent inserts make a rescan safe).
 func Walk(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
-	repo, err := git.PlainOpenWithOptions(repoPath, &git.PlainOpenOptions{DetectDotGit: true})
+	repo, err := openRepo(repoPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("open repo %s: %w", repoPath, err)
+		return nil, "", err
 	}
 
 	rev := "HEAD"
@@ -145,4 +145,17 @@ func Walk(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
 		oldest[len(newestFirst)-1-i] = c
 	}
 	return oldest, head.String(), nil
+}
+
+// openRepo opens a working-tree or bare repository (serve mirrors are bare;
+// DetectDotGit alone cannot open those).
+func openRepo(repoPath string) (*git.Repository, error) {
+	if repo, err := git.PlainOpen(repoPath); err == nil {
+		return repo, nil
+	}
+	repo, err := git.PlainOpenWithOptions(repoPath, &git.PlainOpenOptions{DetectDotGit: true})
+	if err != nil {
+		return nil, fmt.Errorf("open repo %s: %w", repoPath, err)
+	}
+	return repo, nil
 }

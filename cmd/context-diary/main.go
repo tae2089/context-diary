@@ -26,9 +26,12 @@ Usage:
   context-diary lint-message [file|-]                        lint a PR description / message body (default: stdin)
   context-diary scopes                                       list configured scopes
   context-diary index [--repo <name>] [--branch <name>]      index context trailers into Postgres
+  context-diary serve [--addr :8080]                          GitHub PR bot + MCP endpoint
 
 Environment:
-  CONTEXT_DIARY_DB (or DATABASE_URL)   Postgres DSN for 'index'
+  CONTEXT_DIARY_DB (or DATABASE_URL)   Postgres DSN ('index', 'serve')
+  GITHUB_TOKEN                         PR comments + mirror clone ('serve')
+  GITHUB_WEBHOOK_SECRET                webhook HMAC verification ('serve')
 `
 
 func main() {
@@ -64,6 +67,8 @@ func run(args []string) int {
 		return cmdScopes()
 	case "index":
 		return cmdIndex(args[1:])
+	case "serve":
+		return cmdServe(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2

@@ -22,9 +22,14 @@ Git is the source of truth. The server is a read-only index.
    into Postgres (run it locally, from cron, or in CI; a webhook server mode
    is planned). The database is a disposable read model — drop it and
    re-index to rebuild everything from git.
-3. **MCP server** — exposes the index to AI assistants, so anyone — including
-   non-developers — can ask "why does order cancellation work this way?" and
-   get an answer translated to their level.
+3. **Server** (`context-diary serve`) — one deployment for the whole org:
+   - a GitHub PR bot that reviews PR descriptions Atlantis-style (one
+     bot comment: index preview when clean, template when not) and indexes
+     merges the moment they land;
+   - an MCP endpoint (`/mcp`) exposing `search_context` / `list_scopes`, so
+     anyone — including non-developers — can ask "why does order cancellation
+     work this way?" from their AI assistant and get an answer translated to
+     their level.
 
 ## Status
 
@@ -43,8 +48,7 @@ Roadmap:
 - [x] Trailer format spec (v0.1)
 - [x] Commit hook / CLI (`context-diary` binary)
 - [x] Indexer (`context-diary index` → Postgres)
-- [ ] Webhook server mode (`serve`)
-- [ ] MCP server
+- [x] Server: GitHub PR bot + MCP endpoint (`context-diary serve`)
 - [ ] Web UI (if demand proves out)
 
 ## Merge strategies

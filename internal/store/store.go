@@ -173,6 +173,7 @@ type Query struct {
 
 // Result is one context entry hydrated with its scopes and details.
 type Result struct {
+	Repo        string
 	Hash        string
 	Subject     string
 	Why         string
@@ -184,18 +185,19 @@ type Result struct {
 }
 
 // Search returns matching entries, newest first (design §Query surface).
+// Empty repoName searches across all indexed repositories.
 func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result, error) {
 	if q.Limit <= 0 {
 		q.Limit = 50
 	}
 	sql := `
-		SELECT c.hash, c.subject, c.context_why, c.author_name, c.committed_at,
+		SELECT r.name, c.hash, c.subject, c.context_why, c.author_name, c.committed_at,
 		       COALESCE((SELECT array_agg(cs.scope ORDER BY cs.scope) FROM commit_scopes cs WHERE cs.commit_id = c.id), '{}'),
 		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'decision'), '{}'),
 		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'ref'), '{}')
 		FROM commits c
 		JOIN repos r ON r.id = c.repo_id
-		WHERE r.name = $1`
+		WHERE ($1 = '' OR r.name = $1)`
 	args := []any{repoName}
 	n := 1
 	add := func(clause string, v any) {
@@ -228,11 +230,41 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 	var out []Result
 	for rows.Next() {
 		var r Result
-		if err := rows.Scan(&r.Hash, &r.Subject, &r.Why, &r.AuthorName, &r.CommittedAt,
+		if err := rows.Scan(&r.Repo, &r.Hash, &r.Subject, &r.Why, &r.AuthorName, &r.CommittedAt,
 			&r.Scopes, &r.Decisions, &r.Refs); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
 		}
 		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ScopeCount is one scope with its entry count.
+type ScopeCount struct {
+	Scope string
+	Count int
+}
+
+// ListScopes returns distinct scopes (optionally per repo) with counts.
+func (s *Store) ListScopes(ctx context.Context, repoName string) ([]ScopeCount, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT cs.scope, count(*)
+		FROM commit_scopes cs
+		JOIN commits c ON c.id = cs.commit_id
+		JOIN repos r ON r.id = c.repo_id
+		WHERE ($1 = '' OR r.name = $1)
+		GROUP BY cs.scope ORDER BY cs.scope`, repoName)
+	if err != nil {
+		return nil, fmt.Errorf("list scopes: %w", err)
+	}
+	defer rows.Close()
+	var out []ScopeCount
+	for rows.Next() {
+		var sc ScopeCount
+		if err := rows.Scan(&sc.Scope, &sc.Count); err != nil {
+			return nil, fmt.Errorf("scan scope: %w", err)
+		}
+		out = append(out, sc)
 	}
 	return out, rows.Err()
 }
