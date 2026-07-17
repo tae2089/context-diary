@@ -36,6 +36,8 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 func (s *Store) Close() { s.pool.Close() }
 
 const ddl = `
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE IF NOT EXISTS repos (
     id            BIGSERIAL PRIMARY KEY,
     name          TEXT NOT NULL UNIQUE,
@@ -60,6 +62,10 @@ CREATE TABLE IF NOT EXISTS commits (
 );
 CREATE INDEX IF NOT EXISTS commits_committed_at_idx ON commits (repo_id, committed_at);
 CREATE INDEX IF NOT EXISTS commits_search_idx ON commits USING GIN (search);
+-- Trigram index: substring matching for agglutinative languages (Korean
+-- particles defeat the 'simple' FTS dictionary).
+CREATE INDEX IF NOT EXISTS commits_trgm_idx ON commits
+    USING GIN ((subject || ' ' || context_why || ' ' || body) gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS commit_scopes (
     commit_id     BIGINT NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
@@ -209,7 +215,17 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 		add("EXISTS (SELECT 1 FROM commit_scopes cs2 WHERE cs2.commit_id = c.id AND cs2.scope = $%d)", q.Scope)
 	}
 	if q.Text != "" {
-		add("c.search @@ websearch_to_tsquery('simple', $%d)", q.Text)
+		// FTS for token languages OR an all-words substring match for
+		// agglutinative ones (trigram-indexed ILIKE).
+		n++
+		args = append(args, q.Text)
+		clause := fmt.Sprintf("(c.search @@ websearch_to_tsquery('simple', $%d) OR (true", n)
+		for _, word := range strings.Fields(q.Text) {
+			n++
+			clause += fmt.Sprintf(" AND (subject || ' ' || context_why || ' ' || body) ILIKE $%d", n)
+			args = append(args, "%"+word+"%")
+		}
+		sql += " AND " + clause + "))"
 	}
 	if !q.Since.IsZero() {
 		add("c.committed_at >= $%d", q.Since)

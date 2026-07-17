@@ -145,6 +145,37 @@ func TestSaveAndSearch(t *testing.T) {
 		t.Errorf("cross-repo search = %d results", len(rs))
 	}
 
+	// Korean: agglutinated forms must match their stem query. FTS 'simple'
+	// tokenizes "환불이" as one token, so this requires trigram matching.
+	korean := entry("ccc333", "환불이 정산보다 먼저 실행되어 중복 환불 발생", t1.Add(time.Hour), "payment/refund")
+	if _, err := s.SaveEntries(ctx, repoID, []*index.Entry{korean}, "ccc333"); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"환불", "정산", "중복 환불"} {
+		rs, err = s.Search(ctx, "acme/shop", Query{Text: q})
+		if err != nil {
+			t.Fatalf("Search %q: %v", q, err)
+		}
+		found := false
+		for _, r := range rs {
+			if r.Hash == "ccc333" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Korean query %q did not match agglutinated content", q)
+		}
+	}
+	rs, err = s.Search(ctx, "acme/shop", Query{Text: "송장번호"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rs {
+		if r.Hash == "ccc333" {
+			t.Error("unrelated Korean query matched")
+		}
+	}
+
 	scopes, err := s.ListScopes(ctx, "acme/shop")
 	if err != nil {
 		t.Fatalf("ListScopes: %v", err)
