@@ -55,13 +55,20 @@ Roadmap:
 
 ## Merge strategies
 
-Trailers must survive the path to your default branch. Pick one row:
+Trailers must survive the path to your default branch.
+**Recommendation: don't use merge commits.** Use rebase merge or squash
+merge, and disable the rest in the repository settings so the guideline is
+enforced, not just documented:
 
-| Your merge strategy | What to do |
+> Settings → General → Pull Requests: uncheck **"Allow merge commits"**;
+> for squash, set the default message to **"Pull request title and
+> description"**.
+
+| Merge strategy | What to do |
 | --- | --- |
-| Rebase merge | Nothing — commits land unchanged. |
-| Squash merge | Set GitHub squash default to **"Pull request title and description"** and write trailers in the PR description (the [PR lint action](examples/github-actions/pr-context-lint.yml) enforces this before merge). |
-| Merge commits | Index with `context-diary index --walk full` so side-branch commits are captured. |
+| Rebase merge (recommended) | Nothing — commits land unchanged. |
+| Squash merge (recommended) | Write trailers in the PR description; with the setting above they become the commit message. The [PR lint action](examples/github-actions/pr-context-lint.yml) or the `context-diary/context` required status enforces this before merge. |
+| Merge commits (discouraged) | Trailers never reach the merge commit itself and side-branch commits are off the default first-parent walk. If you must keep them (or for pre-adoption history), index with `context-diary index --walk full`. |
 
 Either way, `context-diary lint` in CI on the default branch is the safety
 net that catches anything that slipped through.
