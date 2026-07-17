@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tae2089/context-diary/internal/funclog"
 	"github.com/tae2089/context-diary/internal/store"
 )
 
@@ -18,6 +19,17 @@ import (
 type Searcher interface {
 	Search(ctx context.Context, repoName string, q store.Query) ([]store.Result, error)
 	ListScopes(ctx context.Context, repoName string) ([]store.ScopeCount, error)
+	ByHashes(ctx context.Context, repoName string, hashes []string) ([]store.Result, error)
+}
+
+// Deps wires the tools to their environment.
+type Deps struct {
+	Store Searcher
+	// RepoPath resolves a repo name to a local clone/mirror path for
+	// git-level queries (explain_function). Nil disables that tool's
+	// registration.
+	RepoPath func(repo string) (string, error)
+	Version  string
 }
 
 type searchArgs struct {
@@ -54,11 +66,12 @@ type scopesResult struct {
 }
 
 // NewServer builds the MCP server with the query tools registered.
-func NewServer(s Searcher, version string) *mcp.Server {
+func NewServer(deps Deps) *mcp.Server {
+	s := deps.Store
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "context-diary",
 		Title:   "context-diary — the why behind code changes",
-		Version: version,
+		Version: deps.Version,
 	}, nil)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -108,7 +121,77 @@ func NewServer(s Searcher, version string) *mcp.Server {
 		return nil, scopesResult{Scopes: scopes}, nil
 	})
 
+	if deps.RepoPath != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name: "explain_function",
+			Description: "Timeline of WHY one function changed: composes git line-level history " +
+				"(git log -L) with the context index. Each timeline point carries the commit's " +
+				"why/scopes/decisions when indexed; has_context=false marks coverage gaps " +
+				"(candidates for backfill).",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, args explainArgs) (*mcp.CallToolResult, explainResult, error) {
+			if args.Repo == "" || args.File == "" || args.Function == "" {
+				return nil, explainResult{}, fmt.Errorf("repo, file, and function are required")
+			}
+			path, err := deps.RepoPath(args.Repo)
+			if err != nil {
+				return nil, explainResult{}, err
+			}
+			commits, err := funclog.CommitsTouching(path, args.Branch, args.File, args.Function)
+			if err != nil {
+				return nil, explainResult{}, err
+			}
+			hashes := make([]string, len(commits))
+			for i, c := range commits {
+				hashes[i] = c.Hash
+			}
+			indexed, err := s.ByHashes(ctx, args.Repo, hashes)
+			if err != nil {
+				return nil, explainResult{}, err
+			}
+			byHash := map[string]store.Result{}
+			for _, r := range indexed {
+				byHash[r.Hash] = r
+			}
+			out := explainResult{Function: args.Function, File: args.File}
+			for _, c := range commits {
+				p := explainPoint{Hash: c.Hash, Subject: c.Subject}
+				if r, ok := byHash[c.Hash]; ok {
+					p.HasContext = true
+					p.Why = r.Why
+					p.Scopes = r.Scopes
+					p.Decisions = r.Decisions
+					p.CommittedAt = r.CommittedAt.Format(time.RFC3339)
+				}
+				out.Timeline = append(out.Timeline, p)
+			}
+			return nil, out, nil
+		})
+	}
+
 	return srv
+}
+
+type explainArgs struct {
+	Repo     string `json:"repo" jsonschema:"repository name as indexed, e.g. owner/repo"`
+	File     string `json:"file" jsonschema:"path of the file within the repository"`
+	Function string `json:"function" jsonschema:"function or method name (git funcname matching)"`
+	Branch   string `json:"branch,omitempty" jsonschema:"branch to trace; default HEAD"`
+}
+
+type explainPoint struct {
+	Hash        string   `json:"hash"`
+	Subject     string   `json:"subject"`
+	HasContext  bool     `json:"has_context"`
+	Why         string   `json:"why,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
+	Decisions   []string `json:"decisions,omitempty"`
+	CommittedAt string   `json:"committed_at,omitempty"`
+}
+
+type explainResult struct {
+	File     string         `json:"file"`
+	Function string         `json:"function"`
+	Timeline []explainPoint `json:"timeline"`
 }
 
 func parseTime(s string) (time.Time, error) {

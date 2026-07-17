@@ -14,10 +14,15 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
+// Path is where fullName's mirror lives under cacheDir.
+func Path(cacheDir, fullName string) string {
+	return filepath.Join(cacheDir, sanitize(fullName)+".git")
+}
+
 // Sync clones (first time) or fetches (afterwards) a mirror of cloneURL
 // under cacheDir, keyed by fullName. Returns the mirror path.
 func Sync(cacheDir, fullName, cloneURL, token string) (string, error) {
-	path := filepath.Join(cacheDir, sanitize(fullName)+".git")
+	path := Path(cacheDir, fullName)
 
 	var auth *githttp.BasicAuth
 	if token != "" {

@@ -149,8 +149,9 @@ The schema is shaped for three axes; the MCP server composes them:
   whole DAG (incremental via reachable-set difference from the cursor).
 - **L2 No PR body ingestion.** Roadmap item for the webhook phase — PR
   descriptions live in the forge, not git.
-- **L3 No function↔commit mapping.** Scope slugs are the lookup axis in v0;
-  line-level mapping is a later phase.
+- **L3 Function↔commit mapping is computed, not stored.** `context-diary
+  explain` and the `explain_function` MCP tool compose `git log -L` with the
+  index at query time — nothing extra is written at indexing time.
 
 ## Dependencies added
 

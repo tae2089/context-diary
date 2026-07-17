@@ -197,6 +197,15 @@ func TestSaveAndSearch(t *testing.T) {
 		t.Error("stale scope survived children rebuild")
 	}
 
+	// ByHashes: only matching hashes hydrate, oldest first
+	hs, err := s.ByHashes(ctx, "acme/shop", []string{"aaa111", "bbb222", "not-indexed"})
+	if err != nil {
+		t.Fatalf("ByHashes: %v", err)
+	}
+	if len(hs) != 2 || hs[0].Hash != "aaa111" || hs[1].Hash != "bbb222" {
+		t.Errorf("ByHashes = %+v", hs)
+	}
+
 	scopes, err := s.ListScopes(ctx, "acme/shop")
 	if err != nil {
 		t.Fatalf("ListScopes: %v", err)

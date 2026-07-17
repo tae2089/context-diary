@@ -274,6 +274,38 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 	return out, rows.Err()
 }
 
+// ByHashes hydrates index entries for the given commit hashes, oldest
+// first. Hashes with no entry (no context) are simply absent from the
+// result. Empty repoName matches any repository.
+func (s *Store) ByHashes(ctx context.Context, repoName string, hashes []string) ([]Result, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.name, c.hash, c.subject, c.context_why, c.author_name, c.committed_at,
+		       COALESCE((SELECT array_agg(cs.scope ORDER BY cs.scope) FROM commit_scopes cs WHERE cs.commit_id = c.id), '{}'),
+		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'decision'), '{}'),
+		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'ref'), '{}')
+		FROM commits c
+		JOIN repos r ON r.id = c.repo_id
+		WHERE ($1 = '' OR r.name = $1) AND c.hash = ANY($2)
+		ORDER BY c.committed_at ASC`, repoName, hashes)
+	if err != nil {
+		return nil, fmt.Errorf("by hashes: %w", err)
+	}
+	defer rows.Close()
+	var out []Result
+	for rows.Next() {
+		var r Result
+		if err := rows.Scan(&r.Repo, &r.Hash, &r.Subject, &r.Why, &r.AuthorName, &r.CommittedAt,
+			&r.Scopes, &r.Decisions, &r.Refs); err != nil {
+			return nil, fmt.Errorf("scan result: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ScopeCount is one scope with its entry count.
 type ScopeCount struct {
 	Scope string

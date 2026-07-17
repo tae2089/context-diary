@@ -27,6 +27,7 @@ Usage:
   context-diary scopes                                       list configured scopes
   context-diary index [--repo <name>] [--rescan]              index context trailers into Postgres
   context-diary backfill [--branch <name>]                    list commits lacking context (for note backfill)
+  context-diary explain <file> <function>                      why-timeline of one function (git log -L × index)
   context-diary serve [--addr :8080]                          GitHub PR bot + MCP endpoint
 
 Environment:
@@ -72,6 +73,8 @@ func run(args []string) int {
 		return cmdServe(args[1:])
 	case "backfill":
 		return cmdBackfill(args[1:])
+	case "explain":
+		return cmdExplain(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return 2

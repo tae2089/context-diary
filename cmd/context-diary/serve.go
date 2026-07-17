@@ -168,8 +168,15 @@ func cmdServe(args []string) int {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /webhook/github", webhookHandler(deps))
+	repoPath := func(repo string) (string, error) {
+		path := mirror.Path(*cacheDir, repo)
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("no mirror for %q yet — it appears after the first merged PR (or run 'context-diary index' against a clone)", repo)
+		}
+		return path, nil
+	}
 	var mcpHandler http.Handler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		return mcptool.NewServer(s, serveVersion)
+		return mcptool.NewServer(mcptool.Deps{Store: s, RepoPath: repoPath, Version: serveVersion})
 	}, nil)
 	if mcpToken := os.Getenv("CONTEXT_DIARY_MCP_TOKEN"); mcpToken != "" {
 		mcpHandler = bearerAuth(mcpToken, mcpHandler)
