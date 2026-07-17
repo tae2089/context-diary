@@ -24,8 +24,11 @@ context-diary serve
 | Env | Purpose |
 | --- | --- |
 | `CONTEXT_DIARY_DB` (or `DATABASE_URL`) | Postgres DSN |
-| `GITHUB_TOKEN` | PR comments + mirror clone auth |
 | `GITHUB_WEBHOOK_SECRET` | HMAC-SHA256 webhook verification |
+| `CONTEXT_DIARY_MCP_TOKEN` | optional bearer token guarding `/mcp` |
+| **GitHub auth — one of:** | |
+| `GITHUB_TOKEN` | PAT (comments, statuses, mirror clone) — wins when set |
+| `GITHUB_APP_ID` + `GITHUB_APP_INSTALLATION_ID` + `GITHUB_APP_PRIVATE_KEY` (or `_FILE`) | GitHub App: RS256 app JWT → installation token, cached and auto-refreshed hourly. Preferred for real deployments (per-repo installation scope, rotating tokens). |
 
 Flags: `--addr :8080`, `--cache-dir` (bare mirrors; default user cache dir),
 `--walk first-parent|full` (same semantics as `index`).

@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // ValidSignature checks the X-Hub-Signature-256 header (constant-time).
@@ -83,19 +82,18 @@ func ParsePREvent(payload []byte) (*PREvent, error) {
 	}, nil
 }
 
-// Client talks to the GitHub REST API.
+// Client talks to the GitHub REST API. The bearer token is resolved per
+// request: static for a PAT, rotating for a GitHub App installation.
 type Client struct {
-	base  string
-	token string
-	http  *http.Client
+	base    string
+	tokenFn func(context.Context) (string, error)
+	http    *http.Client
 }
 
-// NewClient builds a client; base "" means https://api.github.com.
+// NewClient builds a client with a static token (PAT); base "" means
+// https://api.github.com.
 func NewClient(base, token string) *Client {
-	if base == "" {
-		base = "https://api.github.com"
-	}
-	return &Client{base: base, token: token, http: &http.Client{Timeout: 10 * time.Second}}
+	return NewClientWithTokenFunc(base, func(context.Context) (string, error) { return token, nil })
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
@@ -111,7 +109,11 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	token, err := c.tokenFn(ctx)
+	if err != nil {
+		return fmt.Errorf("resolve github token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

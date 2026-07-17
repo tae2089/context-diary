@@ -61,21 +61,21 @@ func cmdServe(args []string) int {
 	}
 
 	dsn := dsnFromEnv()
-	token := os.Getenv("GITHUB_TOKEN")
 	secret := os.Getenv("GITHUB_WEBHOOK_SECRET")
-	missing := ""
 	switch {
 	case dsn == "":
-		missing = "CONTEXT_DIARY_DB (or DATABASE_URL)"
-	case token == "":
-		missing = "GITHUB_TOKEN"
+		warnf("set CONTEXT_DIARY_DB (or DATABASE_URL)")
+		return 1
 	case secret == "":
-		missing = "GITHUB_WEBHOOK_SECRET"
-	}
-	if missing != "" {
-		warnf("set %s", missing)
+		warnf("set GITHUB_WEBHOOK_SECRET")
 		return 1
 	}
+	tokenFn, authKind, err := githubTokenFn()
+	if err != nil {
+		warnf("%v", err)
+		return 1
+	}
+	log.Printf("github auth: %s", authKind)
 	if *cacheDir == "" {
 		base, err := os.UserCacheDir()
 		if err != nil {
@@ -97,7 +97,7 @@ func cmdServe(args []string) int {
 		return 1
 	}
 
-	gh := github.NewClient("", token)
+	gh := github.NewClientWithTokenFunc("", tokenFn)
 
 	// Pending merged-PR events keyed by repo; the queue carries keys only,
 	// per-repo FIFO of events lives here.
@@ -110,7 +110,12 @@ func cmdServe(args []string) int {
 		delete(pending, key)
 		pmu.Unlock()
 		for _, ev := range evs {
-			path, err := mirror.Sync(*cacheDir, ev.FullName, ev.CloneURL, token)
+			// Installation tokens rotate hourly; resolve at job time, not enqueue time.
+			token, err := tokenFn(ctx)
+			var path string
+			if err == nil {
+				path, err = mirror.Sync(*cacheDir, ev.FullName, ev.CloneURL, token)
+			}
 			var res ingest.Result
 			if err == nil {
 				res, err = ingest.Run(ctx, s, ingest.Options{
@@ -192,6 +197,36 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// githubTokenFn selects the auth mode: a PAT when GITHUB_TOKEN is set,
+// otherwise GitHub App credentials (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID,
+// GITHUB_APP_PRIVATE_KEY or _FILE). App auth is preferred for real
+// deployments: per-repo installation scope, hourly-rotating tokens.
+func githubTokenFn() (func(context.Context) (string, error), string, error) {
+	if pat := os.Getenv("GITHUB_TOKEN"); pat != "" {
+		return func(context.Context) (string, error) { return pat, nil }, "personal access token", nil
+	}
+	appID := os.Getenv("GITHUB_APP_ID")
+	instID := os.Getenv("GITHUB_APP_INSTALLATION_ID")
+	keyPEM := os.Getenv("GITHUB_APP_PRIVATE_KEY")
+	if keyPEM == "" {
+		if path := os.Getenv("GITHUB_APP_PRIVATE_KEY_FILE"); path != "" {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return nil, "", fmt.Errorf("read GITHUB_APP_PRIVATE_KEY_FILE: %w", err)
+			}
+			keyPEM = string(b)
+		}
+	}
+	if appID == "" || instID == "" || keyPEM == "" {
+		return nil, "", errors.New("set GITHUB_TOKEN, or GITHUB_APP_ID + GITHUB_APP_INSTALLATION_ID + GITHUB_APP_PRIVATE_KEY(_FILE)")
+	}
+	app, err := github.NewAppAuth("", appID, instID, keyPEM)
+	if err != nil {
+		return nil, "", err
+	}
+	return app.Token, fmt.Sprintf("github app %s (installation %s)", appID, instID), nil
 }
 
 // bearerAuth guards a handler with a constant-time bearer token check.

@@ -51,8 +51,8 @@ Roadmap:
 - [x] Commit hook / CLI (`context-diary` binary)
 - [x] Indexer (`context-diary index` → Postgres)
 - [x] Server: GitHub PR bot + MCP endpoint (`context-diary serve`)
-- [ ] GitHub App auth (replace the PAT; unlocks Checks API, short-lived tokens)
-- [ ] Backfill: AI-generated context for pre-adoption history via git notes
+- [x] GitHub App auth (PAT remains supported; App preferred for deployments)
+- [x] Backfill: context for pre-adoption history via [git notes](docs/backfill.md)
 - [ ] Web UI (if demand proves out)
 
 `serve` is deliberately single-instance (in-memory queue, local mirror

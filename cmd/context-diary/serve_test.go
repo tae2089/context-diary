@@ -160,6 +160,33 @@ func TestWebhookClosedUnmergedIgnored(t *testing.T) {
 	}
 }
 
+func TestGithubTokenFnSelection(t *testing.T) {
+	// PAT wins
+	t.Setenv("GITHUB_TOKEN", "ghp_x")
+	t.Setenv("GITHUB_APP_ID", "1")
+	fn, kind, err := githubTokenFn()
+	if err != nil || !strings.Contains(kind, "personal access token") {
+		t.Fatalf("PAT selection: kind=%q err=%v", kind, err)
+	}
+	if tok, _ := fn(context.Background()); tok != "ghp_x" {
+		t.Errorf("token = %q", tok)
+	}
+
+	// neither configured
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_APP_ID", "")
+	if _, _, err := githubTokenFn(); err == nil {
+		t.Error("expected error with no auth configured")
+	}
+
+	// app credentials incomplete
+	t.Setenv("GITHUB_APP_ID", "1")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "2")
+	if _, _, err := githubTokenFn(); err == nil {
+		t.Error("expected error without private key")
+	}
+}
+
 func TestBearerAuth(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "reached")
