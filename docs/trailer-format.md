@@ -66,6 +66,33 @@ lookup axis for non-developer queries ("why does order cancellation work this
 way?"), so name them after product concepts, not code paths. Teams SHOULD
 maintain a shared scope list; the indexer treats unknown scopes as new.
 
+## Ref forms
+
+`Context-Ref` values are one line of free text, but readers interpret three
+forms (additive — older readers treat them all as opaque text):
+
+| Form | Example | Reader behavior |
+| --- | --- | --- |
+| URL | `https://wiki.example.com/postmortem-42` | text-searchable join key |
+| Issue ID | `JIRA-123` | text-searchable join key |
+| Code ref | `owner/repo//path/to/file.go#Symbol` | parsed structurally: enables reverse lookup ("which entries anywhere reference this function") |
+
+Code ref grammar: repository full name, a literal `//`, the file path, and
+an optional `#Symbol` (function/method name). GitHub blob URLs also parse
+as code refs (repo + path only — `#L10` line fragments rot with edits and
+are ignored). Use refs as the cross-repository join: entries in different
+repositories sharing a ticket URL, or pointing at each other's functions,
+become one traceable piece of work.
+
+## Scopes across repositories
+
+Scopes are product concepts, so they intentionally cross repository
+boundaries: `payment/refund` in both order-service and payment-service is
+the SAME scope, and a scope query spans repos. Maintain ONE shared scope
+dictionary for the organization (each repo's `.context-diary.toml` scopes
+list drawn from it) — inconsistent slugs (`payment/refund` vs `refunds`)
+break the join.
+
 ## Audience level
 
 Trailer values are written at **developer** language level. Do not write two

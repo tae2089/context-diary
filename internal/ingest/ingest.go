@@ -60,7 +60,7 @@ func Run(ctx context.Context, s *store.Store, opts Options) (Result, error) {
 		}
 	}
 
-	res.Inserted, err = s.SaveEntries(ctx, repoID, entries, head)
+	res.Inserted, err = s.SaveEntries(ctx, repoID, entries, head, opts.Rescan)
 	if err != nil {
 		return Result{}, err
 	}

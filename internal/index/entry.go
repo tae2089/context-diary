@@ -32,7 +32,8 @@ type Entry struct {
 	Why       string
 	Scopes    []string
 	Decisions []string
-	Refs      []string
+	Refs      []string  // raw values, all forms (searchable text)
+	CodeRefs  []CodeRef // the subset of Refs that parse as code references
 	// DroppedScopes records invalid slugs for operator visibility.
 	DroppedScopes []string
 }
@@ -84,6 +85,9 @@ func EntryFromCommit(c Commit) *Entry {
 		case strings.EqualFold(t.Key, trailer.KeyRef):
 			if t.Value != "" {
 				e.Refs = append(e.Refs, t.Value)
+				if cr := ParseCodeRef(t.Value); cr != nil {
+					e.CodeRefs = append(e.CodeRefs, *cr)
+				}
 			}
 		}
 	}

@@ -87,5 +87,18 @@ func cmdExplain(args []string) int {
 		}
 		fmt.Println()
 	}
+
+	// Cross-repo: who references this function via Context-Ref code refs.
+	refs, err := s.ReferencedBy(ctx, *repoName, file, function)
+	if err != nil {
+		warnf("%v", err)
+		return 1
+	}
+	if len(refs) > 0 {
+		fmt.Printf("referenced by %d entr(ies) in other repos:\n\n", len(refs))
+		for _, r := range refs {
+			fmt.Printf("%s %s  %s\n    why: %s\n\n", r.Repo, short(r.Hash), r.Subject, r.Why)
+		}
+	}
 	return 0
 }

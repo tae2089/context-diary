@@ -97,7 +97,8 @@ Official `github.com/modelcontextprotocol/go-sdk`, streamable HTTP at `/mcp`.
 | --- | --- | --- |
 | `search_context` | `repo?`, `scope?`, `query?` (websearch text), `since?`/`until?` (RFC3339), `limit?` | entries: hash, subject, why, scopes, decisions, refs, author, committed_at |
 | `list_scopes` | `repo?` | distinct scope slugs with entry counts |
-| `explain_function` | `repo`, `file`, `function`, `branch?` | why-timeline of one function: `git log -L` commits joined with index entries; `has_context=false` marks backfill candidates. Requires the repo's mirror and the git CLI on the server. |
+| `explain_function` | `repo`, `file`, `function`, `branch?` | why-timeline of one function: `git log -L` commits joined with index entries; `has_context=false` marks backfill candidates; `referenced_by` lists entries in OTHER repos whose code refs point at this function. Requires the repo's mirror and the git CLI on the server. |
+| `related_by_ref` | `ref` | entries across ALL repos whose Context-Ref values contain the text (Jira key, doc URL, code ref) — "which repos did this ticket/incident touch". |
 
 Both are read-only over the store; `repo` omitted = across all indexed
 repos. Answer-language/audience translation is the calling assistant's job

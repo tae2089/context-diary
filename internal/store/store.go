@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS commit_details (
     value         TEXT   NOT NULL,
     PRIMARY KEY (commit_id, kind, position)
 );
+
+-- Structured code references parsed from Context-Ref values
+-- (docs/trailer-format.md §Ref forms): the cross-repo join surface.
+CREATE TABLE IF NOT EXISTS commit_code_refs (
+    commit_id     BIGINT NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
+    ref_repo      TEXT   NOT NULL,
+    ref_path      TEXT   NOT NULL,
+    ref_symbol    TEXT   NOT NULL DEFAULT '',
+    PRIMARY KEY (commit_id, ref_repo, ref_path, ref_symbol)
+);
+CREATE INDEX IF NOT EXISTS commit_code_refs_target_idx ON commit_code_refs (ref_repo, ref_path);
 `
 
 // Migrate applies the idempotent DDL.
@@ -109,8 +120,11 @@ func (s *Store) UpsertRepo(ctx context.Context, name string) (int64, string, err
 }
 
 // SaveEntries inserts entries and moves the cursor in one transaction
-// (design X17-X21). Re-runs are no-ops thanks to ON CONFLICT DO NOTHING.
-func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.Entry, headHash string) (int, error) {
+// (design X17-X21). Identical re-runs are no-ops; force rebuilds every row's
+// derived children even when the commit content is unchanged (needed when
+// the PARSER improves — e.g. new Context-Ref forms — since change detection
+// is content-based).
+func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.Entry, headHash string, force bool) (int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin: %w", err)
@@ -131,12 +145,13 @@ func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.
 				subject = EXCLUDED.subject,
 				body = EXCLUDED.body,
 				context_why = EXCLUDED.context_why
-			WHERE commits.subject IS DISTINCT FROM EXCLUDED.subject
+			WHERE $9
+			   OR commits.subject IS DISTINCT FROM EXCLUDED.subject
 			   OR commits.body IS DISTINCT FROM EXCLUDED.body
 			   OR commits.context_why IS DISTINCT FROM EXCLUDED.context_why
 			RETURNING id`,
 			repoID, e.Hash, sanitize(e.Subject), sanitize(e.Message),
-			sanitize(e.AuthorName), sanitize(e.AuthorEmail), e.CommittedAt, sanitize(e.Why),
+			sanitize(e.AuthorName), sanitize(e.AuthorEmail), e.CommittedAt, sanitize(e.Why), force,
 		).Scan(&commitID)
 		if err == pgx.ErrNoRows {
 			continue // already indexed with identical content
@@ -154,6 +169,10 @@ func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.
 			`DELETE FROM commit_details WHERE commit_id = $1`, commitID); err != nil {
 			return 0, fmt.Errorf("clear details: %w", err)
 		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM commit_code_refs WHERE commit_id = $1`, commitID); err != nil {
+			return 0, fmt.Errorf("clear code refs: %w", err)
+		}
 
 		for _, scope := range e.Scopes {
 			if _, err := tx.Exec(ctx,
@@ -169,6 +188,14 @@ func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.
 					commitID, kind, i, sanitize(v)); err != nil {
 					return 0, fmt.Errorf("insert %s: %w", kind, err)
 				}
+			}
+		}
+		for _, cr := range e.CodeRefs {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO commit_code_refs (commit_id, ref_repo, ref_path, ref_symbol)
+				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+				commitID, cr.Repo, cr.Path, cr.Symbol); err != nil {
+				return 0, fmt.Errorf("insert code ref: %w", err)
 			}
 		}
 	}
@@ -215,13 +242,7 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 	if q.Limit <= 0 {
 		q.Limit = 50
 	}
-	sql := `
-		SELECT r.name, c.hash, c.subject, c.context_why, c.author_name, c.committed_at,
-		       COALESCE((SELECT array_agg(cs.scope ORDER BY cs.scope) FROM commit_scopes cs WHERE cs.commit_id = c.id), '{}'),
-		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'decision'), '{}'),
-		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'ref'), '{}')
-		FROM commits c
-		JOIN repos r ON r.id = c.repo_id
+	sql := resultSelect + `
 		WHERE ($1 = '' OR r.name = $1)`
 	args := []any{repoName}
 	n := 1
@@ -260,8 +281,37 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
-	defer rows.Close()
+	return scanResults(rows)
+}
 
+// ByHashes hydrates index entries for the given commit hashes, oldest
+// first. Hashes with no entry (no context) are simply absent from the
+// result. Empty repoName matches any repository.
+func (s *Store) ByHashes(ctx context.Context, repoName string, hashes []string) ([]Result, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, resultSelect+`
+		WHERE ($1 = '' OR r.name = $1) AND c.hash = ANY($2)
+		ORDER BY c.committed_at ASC`, repoName, hashes)
+	if err != nil {
+		return nil, fmt.Errorf("by hashes: %w", err)
+	}
+	return scanResults(rows)
+}
+
+// resultSelect is the shared projection for entry queries; append a WHERE
+// clause referencing commits c and repos r.
+const resultSelect = `
+	SELECT r.name, c.hash, c.subject, c.context_why, c.author_name, c.committed_at,
+	       COALESCE((SELECT array_agg(cs.scope ORDER BY cs.scope) FROM commit_scopes cs WHERE cs.commit_id = c.id), '{}'),
+	       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'decision'), '{}'),
+	       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'ref'), '{}')
+	FROM commits c
+	JOIN repos r ON r.id = c.repo_id`
+
+func scanResults(rows pgx.Rows) ([]Result, error) {
+	defer rows.Close()
 	var out []Result
 	for rows.Next() {
 		var r Result
@@ -274,36 +324,38 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 	return out, rows.Err()
 }
 
-// ByHashes hydrates index entries for the given commit hashes, oldest
-// first. Hashes with no entry (no context) are simply absent from the
-// result. Empty repoName matches any repository.
-func (s *Store) ByHashes(ctx context.Context, repoName string, hashes []string) ([]Result, error) {
-	if len(hashes) == 0 {
-		return nil, nil
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT r.name, c.hash, c.subject, c.context_why, c.author_name, c.committed_at,
-		       COALESCE((SELECT array_agg(cs.scope ORDER BY cs.scope) FROM commit_scopes cs WHERE cs.commit_id = c.id), '{}'),
-		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'decision'), '{}'),
-		       COALESCE((SELECT array_agg(cd.value ORDER BY cd.position) FROM commit_details cd WHERE cd.commit_id = c.id AND cd.kind = 'ref'), '{}')
-		FROM commits c
-		JOIN repos r ON r.id = c.repo_id
-		WHERE ($1 = '' OR r.name = $1) AND c.hash = ANY($2)
-		ORDER BY c.committed_at ASC`, repoName, hashes)
+// ReferencedBy returns entries in ANY repository whose code refs point at
+// the given repo+path (and symbol, when the ref carries one; path-level
+// refs match every symbol in the file). Oldest first.
+func (s *Store) ReferencedBy(ctx context.Context, refRepo, refPath, symbol string) ([]Result, error) {
+	rows, err := s.pool.Query(ctx, resultSelect+`
+		WHERE EXISTS (
+			SELECT 1 FROM commit_code_refs ccr
+			WHERE ccr.commit_id = c.id
+			  AND ccr.ref_repo = $1 AND ccr.ref_path = $2
+			  AND (ccr.ref_symbol = $3 OR ccr.ref_symbol = '')
+		)
+		ORDER BY c.committed_at ASC`, refRepo, refPath, symbol)
 	if err != nil {
-		return nil, fmt.Errorf("by hashes: %w", err)
+		return nil, fmt.Errorf("referenced by: %w", err)
 	}
-	defer rows.Close()
-	var out []Result
-	for rows.Next() {
-		var r Result
-		if err := rows.Scan(&r.Repo, &r.Hash, &r.Subject, &r.Why, &r.AuthorName, &r.CommittedAt,
-			&r.Scopes, &r.Decisions, &r.Refs); err != nil {
-			return nil, fmt.Errorf("scan result: %w", err)
-		}
-		out = append(out, r)
+	return scanResults(rows)
+}
+
+// ByRefText returns entries across all repositories whose Context-Ref
+// values contain the query text (Jira keys, doc URLs, postmortems — the
+// cross-repo join for non-code refs). Oldest first.
+func (s *Store) ByRefText(ctx context.Context, q string) ([]Result, error) {
+	rows, err := s.pool.Query(ctx, resultSelect+`
+		WHERE EXISTS (
+			SELECT 1 FROM commit_details cd
+			WHERE cd.commit_id = c.id AND cd.kind = 'ref' AND cd.value ILIKE '%' || $1 || '%'
+		)
+		ORDER BY c.committed_at ASC`, q)
+	if err != nil {
+		return nil, fmt.Errorf("by ref text: %w", err)
 	}
-	return out, rows.Err()
+	return scanResults(rows)
 }
 
 // ScopeCount is one scope with its entry count.

@@ -71,7 +71,7 @@ func TestSaveAndSearch(t *testing.T) {
 		entry("aaa111", "refund raced with settlement", t0, "order/cancel", "payment/refund"),
 		entry("bbb222", "kimchi inventory sync was stale", t1, "inventory"),
 	}
-	n, err := s.SaveEntries(ctx, repoID, entries, "bbb222")
+	n, err := s.SaveEntries(ctx, repoID, entries, "bbb222", false)
 	if err != nil {
 		t.Fatalf("SaveEntries: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestSaveAndSearch(t *testing.T) {
 	}
 
 	// idempotency: same batch again → 0 new rows, cursor still updates
-	n, err = s.SaveEntries(ctx, repoID, entries, "bbb222")
+	n, err = s.SaveEntries(ctx, repoID, entries, "bbb222", false)
 	if err != nil {
 		t.Fatalf("SaveEntries rerun: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSaveAndSearch(t *testing.T) {
 	// Korean: agglutinated forms must match their stem query. FTS 'simple'
 	// tokenizes "환불이" as one token, so this requires trigram matching.
 	korean := entry("ccc333", "환불이 정산보다 먼저 실행되어 중복 환불 발생", t1.Add(time.Hour), "payment/refund")
-	if _, err := s.SaveEntries(ctx, repoID, []*index.Entry{korean}, "ccc333"); err != nil {
+	if _, err := s.SaveEntries(ctx, repoID, []*index.Entry{korean}, "ccc333", false); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range []string{"환불", "정산", "중복 환불"} {
@@ -179,7 +179,7 @@ func TestSaveAndSearch(t *testing.T) {
 
 	// upsert-on-change: edited content (e.g. backfill note) refreshes the row
 	changed := entry("aaa111", "refund raced with settlement — corrected wording", t0, "order/refund")
-	n, err = s.SaveEntries(ctx, repoID, []*index.Entry{changed}, "bbb222")
+	n, err = s.SaveEntries(ctx, repoID, []*index.Entry{changed}, "bbb222", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +204,38 @@ func TestSaveAndSearch(t *testing.T) {
 	}
 	if len(hs) != 2 || hs[0].Hash != "aaa111" || hs[1].Hash != "bbb222" {
 		t.Errorf("ByHashes = %+v", hs)
+	}
+
+	// cross-repo joins: code ref + text ref
+	repoB, _, err := s.UpsertRepo(ctx, "acme/billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossEntry := entry("ddd444", "billing must respect shop refund waits", t1.Add(2*time.Hour), "payment/refund")
+	crossEntry.Refs = []string{"https://jira.example.com/browse/PAY-77", "acme/shop//internal/refund/refund.go#ProcessRefund"}
+	crossEntry.CodeRefs = []index.CodeRef{{Repo: "acme/shop", Path: "internal/refund/refund.go", Symbol: "ProcessRefund"}}
+	if _, err := s.SaveEntries(ctx, repoB, []*index.Entry{crossEntry}, "ddd444", false); err != nil {
+		t.Fatal(err)
+	}
+
+	refs, err := s.ReferencedBy(ctx, "acme/shop", "internal/refund/refund.go", "ProcessRefund")
+	if err != nil {
+		t.Fatalf("ReferencedBy: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Repo != "acme/billing" || refs[0].Hash != "ddd444" {
+		t.Errorf("ReferencedBy = %+v (billing entry must point at shop function)", refs)
+	}
+	// path-level ref (empty symbol) must also match any symbol query
+	if refs, _ := s.ReferencedBy(ctx, "acme/shop", "internal/refund/refund.go", "OtherFunc"); len(refs) != 0 {
+		t.Errorf("symbol-specific ref matched wrong symbol: %+v", refs)
+	}
+
+	byText, err := s.ByRefText(ctx, "PAY-77")
+	if err != nil {
+		t.Fatalf("ByRefText: %v", err)
+	}
+	if len(byText) != 1 || byText[0].Repo != "acme/billing" {
+		t.Errorf("ByRefText = %+v", byText)
 	}
 
 	scopes, err := s.ListScopes(ctx, "acme/shop")

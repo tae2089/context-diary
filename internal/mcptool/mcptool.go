@@ -20,6 +20,8 @@ type Searcher interface {
 	Search(ctx context.Context, repoName string, q store.Query) ([]store.Result, error)
 	ListScopes(ctx context.Context, repoName string) ([]store.ScopeCount, error)
 	ByHashes(ctx context.Context, repoName string, hashes []string) ([]store.Result, error)
+	ByRefText(ctx context.Context, q string) ([]store.Result, error)
+	ReferencedBy(ctx context.Context, refRepo, refPath, symbol string) ([]store.Result, error)
 }
 
 // Deps wires the tools to their environment.
@@ -61,6 +63,29 @@ type scopesArgs struct {
 	Repo string `json:"repo,omitempty" jsonschema:"repository name; omit for every indexed repository"`
 }
 
+type refArgs struct {
+	Ref string `json:"ref" jsonschema:"text contained in Context-Ref values, e.g. a Jira key (PAY-77), a doc URL, or a code ref"`
+}
+
+// toSearchResult converts store rows to the wire shape.
+func toSearchResult(rs []store.Result) searchResult {
+	out := searchResult{Entries: make([]searchEntry, 0, len(rs))}
+	for _, r := range rs {
+		out.Entries = append(out.Entries, searchEntry{
+			Repo:        r.Repo,
+			Hash:        r.Hash,
+			Subject:     r.Subject,
+			Why:         r.Why,
+			Scopes:      r.Scopes,
+			Decisions:   r.Decisions,
+			Refs:        r.Refs,
+			Author:      r.AuthorName,
+			CommittedAt: r.CommittedAt.Format(time.RFC3339),
+		})
+	}
+	return out
+}
+
 type scopesResult struct {
 	Scopes []store.ScopeCount `json:"scopes"`
 }
@@ -92,21 +117,7 @@ func NewServer(deps Deps) *mcp.Server {
 		if err != nil {
 			return nil, searchResult{}, err
 		}
-		out := searchResult{Entries: make([]searchEntry, 0, len(rs))}
-		for _, r := range rs {
-			out.Entries = append(out.Entries, searchEntry{
-				Repo:        r.Repo,
-				Hash:        r.Hash,
-				Subject:     r.Subject,
-				Why:         r.Why,
-				Scopes:      r.Scopes,
-				Decisions:   r.Decisions,
-				Refs:        r.Refs,
-				Author:      r.AuthorName,
-				CommittedAt: r.CommittedAt.Format(time.RFC3339),
-			})
-		}
-		return nil, out, nil
+		return nil, toSearchResult(rs), nil
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -119,6 +130,22 @@ func NewServer(deps Deps) *mcp.Server {
 			return nil, scopesResult{}, err
 		}
 		return nil, scopesResult{Scopes: scopes}, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "related_by_ref",
+		Description: "Entries across ALL repositories whose Context-Ref values contain the query " +
+			"text — the cross-repo join for shared Jira tickets, design docs, ADRs, and " +
+			"postmortem links. Use to answer 'which repos were touched by this ticket/incident'.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args refArgs) (*mcp.CallToolResult, searchResult, error) {
+		if args.Ref == "" {
+			return nil, searchResult{}, fmt.Errorf("ref is required")
+		}
+		rs, err := s.ByRefText(ctx, args.Ref)
+		if err != nil {
+			return nil, searchResult{}, err
+		}
+		return nil, toSearchResult(rs), nil
 	})
 
 	if deps.RepoPath != nil {
@@ -164,6 +191,12 @@ func NewServer(deps Deps) *mcp.Server {
 				}
 				out.Timeline = append(out.Timeline, p)
 			}
+			// Cross-repo: entries anywhere whose code refs point at this function.
+			refs, err := s.ReferencedBy(ctx, args.Repo, args.File, args.Function)
+			if err != nil {
+				return nil, explainResult{}, err
+			}
+			out.ReferencedBy = toSearchResult(refs).Entries
 			return nil, out, nil
 		})
 	}
@@ -192,6 +225,9 @@ type explainResult struct {
 	File     string         `json:"file"`
 	Function string         `json:"function"`
 	Timeline []explainPoint `json:"timeline"`
+	// ReferencedBy: entries in other repositories whose Context-Ref code
+	// refs point at this function ("this decision concerns you").
+	ReferencedBy []searchEntry `json:"referenced_by,omitempty"`
 }
 
 func parseTime(s string) (time.Time, error) {
