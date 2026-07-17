@@ -75,15 +75,15 @@ func cmdExplain(args []string) int {
 
 	fmt.Printf("%s — %s: %d change(s), oldest → newest\n\n", file, function, len(commits))
 	for _, c := range commits {
-		fmt.Printf("%s  %s  %s\n", c.CommittedAt.Format("2006-01-02"), short(c.Hash), c.Subject)
+		fmt.Printf("%s  %s  %s\n", c.CommittedAt.Local().Format("2006-01-02 15:04"), short(c.Hash), c.Subject)
 		r, ok := byHash[c.Hash]
 		if !ok {
 			fmt.Printf("    (no context — candidate for backfill, see docs/backfill.md)\n\n")
 			continue
 		}
 		fmt.Printf("    why: %s\n", r.Why)
-		for _, d := range r.Decisions {
-			fmt.Printf("    decision: %s\n", d)
+		for i, d := range r.Decisions {
+			fmt.Printf("    %d - %s\n", i+1, d)
 		}
 		fmt.Println()
 	}
