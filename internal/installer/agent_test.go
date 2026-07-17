@@ -25,7 +25,10 @@ func TestInstructionsPerAgent(t *testing.T) {
 	}
 
 	snippet := Instructions()
-	for _, want := range []string{"Context-Why", "Context-Scope", "Context-Decision", "last paragraph"} {
+	for _, want := range []string{
+		"Context-Why", "Context-Scope", "Context-Decision", "last paragraph",
+		"Good:", "Bad", "double refunds", "fix bug", // quality examples
+	} {
 		if !strings.Contains(snippet, want) {
 			t.Errorf("Instructions() missing %q", want)
 		}

@@ -1,0 +1,21 @@
+# Dogfood of examples/github-actions/pr-context-lint.yml: validates that PR
+# descriptions carry context trailers (built from source in this repo).
+name: PR context lint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go install ./cmd/context-diary
+      - name: Lint PR description for context trailers
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$PR_BODY" | context-diary lint-message -

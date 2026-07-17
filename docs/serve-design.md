@@ -105,9 +105,11 @@ repos. Answer-language/audience translation is the calling assistant's job
 - `GITHUB_TOKEN` scope: `repo` (comments + clone). Never logged; mirror
   remotes embed it only in-memory (cache dir stores plain bare repos,
   fetch URL is reconstructed per request).
-- MCP endpoint is unauthenticated in MVP — deploy inside the network
-  boundary (self-hosted, internal staff), same posture as the CLI design.
-  Auth middleware slot is a later phase.
+- MCP endpoint auth: set `CONTEXT_DIARY_MCP_TOKEN` and clients must send
+  `Authorization: Bearer <token>` (constant-time compare). Unset = open,
+  logged as a startup warning — acceptable only inside a trusted network.
+  GitHub App auth (replacing the PAT, unlocking Checks API and short-lived
+  tokens) is the planned next step.
 
 ## Out of scope (this phase)
 

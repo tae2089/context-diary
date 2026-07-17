@@ -160,6 +160,38 @@ func TestWebhookClosedUnmergedIgnored(t *testing.T) {
 	}
 }
 
+func TestBearerAuth(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "reached")
+	})
+	h := bearerAuth("sekrit", next)
+
+	cases := []struct {
+		name   string
+		header string
+		want   int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong scheme", "Basic sekrit", http.StatusUnauthorized},
+		{"wrong token", "Bearer nope", http.StatusUnauthorized},
+		{"correct", "Bearer sekrit", http.StatusOK},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("POST", "/mcp", nil)
+		if c.header != "" {
+			req.Header.Set("Authorization", c.header)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != c.want {
+			t.Errorf("%s: status = %d, want %d", c.name, w.Code, c.want)
+		}
+		if c.want == http.StatusOK && w.Body.String() != "reached" {
+			t.Errorf("%s: next handler not reached", c.name)
+		}
+	}
+}
+
 func TestWebhookNonPREventIgnored(t *testing.T) {
 	rec := &recorded{}
 	h := testHandler(rec)

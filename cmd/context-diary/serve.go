@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -161,9 +163,15 @@ func cmdServe(args []string) int {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /webhook/github", webhookHandler(deps))
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+	var mcpHandler http.Handler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcptool.NewServer(s, serveVersion)
-	}, nil))
+	}, nil)
+	if mcpToken := os.Getenv("CONTEXT_DIARY_MCP_TOKEN"); mcpToken != "" {
+		mcpHandler = bearerAuth(mcpToken, mcpHandler)
+	} else {
+		log.Printf("warning: CONTEXT_DIARY_MCP_TOKEN not set — /mcp is unauthenticated; deploy inside a trusted network only")
+	}
+	mux.Handle("/mcp", mcpHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -184,6 +192,19 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// bearerAuth guards a handler with a constant-time bearer token check.
+func bearerAuth(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="context-diary"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // bodyClean reports whether a PR description passes the trailer lint

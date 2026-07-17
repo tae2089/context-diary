@@ -51,7 +51,13 @@ Roadmap:
 - [x] Commit hook / CLI (`context-diary` binary)
 - [x] Indexer (`context-diary index` → Postgres)
 - [x] Server: GitHub PR bot + MCP endpoint (`context-diary serve`)
+- [ ] GitHub App auth (replace the PAT; unlocks Checks API, short-lived tokens)
+- [ ] Backfill: AI-generated context for pre-adoption history via git notes
 - [ ] Web UI (if demand proves out)
+
+`serve` is deliberately single-instance (in-memory queue, local mirror
+cache) — the right trade for a self-hosted OSS deployment. Set
+`CONTEXT_DIARY_MCP_TOKEN` to require a bearer token on `/mcp`.
 
 ## Merge strategies
 

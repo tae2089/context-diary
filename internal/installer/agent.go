@@ -26,6 +26,18 @@ the commit message:
 Every value fits on one line; put longer explanation in the commit body
 above the trailer block. Write at developer language level.
 
+Context-Why states the problem or motivation — never a restatement of what
+the diff does. The test: would this line still explain the change to someone
+reading it a year from now?
+
+Good:
+  Context-Why: instant refund raced with pending PG settlement, causing double refunds
+  Context-Why: the 50-req/s scraper burst tripped the vendor's undocumented rate limit
+Bad (these restate the diff or say nothing):
+  Context-Why: fix bug
+  Context-Why: add null check to refund handler
+  Context-Why: update code as requested
+
 When you open a pull request in a squash-merge repository, put the same
 trailers in the last paragraph of the PR description — the squash commit
 message is composed from it.
