@@ -51,17 +51,18 @@ cd your-repo
 context-diary init --agent claude-code   # hooks + config + CLAUDE.md snippet
 ```
 
-Or run the server from the Docker image (needs git-capable runtime — included):
+Or run the server from the published image
+(`ghcr.io/tae2089/context-diary:latest`, or build locally):
 
 ```sh
-docker build -t context-diary .
+docker pull ghcr.io/tae2089/context-diary:latest   # or: docker build -t context-diary .
 docker run -p 8080:8080 \
   -e CONTEXT_DIARY_DB=postgres://... \
   -e GITHUB_WEBHOOK_SECRET=... \
   -e GITHUB_APP_ID=... -e GITHUB_APP_INSTALLATION_ID=... \
   -v ctxdiary-keys:/keys -e GITHUB_APP_PRIVATE_KEY_FILE=/keys/app.pem \
   -v ctxdiary-mirrors:/var/cache/context-diary \
-  context-diary   # default command: serve
+  ghcr.io/tae2089/context-diary:latest   # default command: serve
 ```
 
 Roadmap:

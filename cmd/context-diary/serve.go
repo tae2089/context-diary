@@ -31,7 +31,9 @@ import (
 	"github.com/tae2089/context-diary/internal/webui"
 )
 
-const serveVersion = "0.1.0"
+// serveVersion is stamped at build time via
+// -ldflags "-X main.serveVersion=<version>" (see Dockerfile / release workflow).
+var serveVersion = "dev"
 
 // Status contexts shown in the GitHub UI.
 const (
