@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tae2089/context-diary/internal/checks"
 	"github.com/tae2089/context-diary/internal/forge/github"
 )
 
@@ -157,6 +158,67 @@ func TestWebhookClosedUnmergedIgnored(t *testing.T) {
 	h(w, signedRequest(t, "pull_request", prPayload("closed", false, "x")))
 	if w.Code != http.StatusOK || len(rec.enqueued)+len(rec.comments)+len(rec.statuses) != 0 {
 		t.Errorf("closed-unmerged: status=%d side effects", w.Code)
+	}
+}
+
+func TestWebhookUsesCheckPageWhenConfigured(t *testing.T) {
+	rec := &recorded{}
+	deps := serveDeps{
+		secret: []byte(testSecret),
+		comment: func(_ context.Context, _ string, _ int, _ string) (string, error) {
+			return "https://github.test/comment/1", nil
+		},
+		status: func(_ context.Context, _, sha, state, statusContext, _, targetURL string) error {
+			rec.statuses = append(rec.statuses, fmt.Sprintf("%s:%s:%s:%s", sha, state, statusContext, targetURL))
+			return nil
+		},
+		enqueue: func(*github.PREvent) bool { return true },
+		checkURL: func(key, _, _ string, _ []string) string {
+			return "https://ctx.test/checks/id-for-" + key
+		},
+	}
+	h := webhookHandler(deps)
+
+	w := httptest.NewRecorder()
+	h(w, signedRequest(t, "pull_request", prPayload("edited", false, "no trailers")))
+	if len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:failure:context-diary/context:https://ctx.test/checks/id-for-lint:acme/shop#5" {
+		t.Errorf("lint status target = %v", rec.statuses)
+	}
+
+	rec.statuses = nil
+	w = httptest.NewRecorder()
+	h(w, signedRequest(t, "pull_request", prPayload("closed", true, "x")))
+	if len(rec.statuses) != 1 || rec.statuses[0] != "mmm999:pending:context-diary/ingest:https://ctx.test/checks/id-for-ingest:acme/shop#mmm999" {
+		t.Errorf("ingest status target = %v", rec.statuses)
+	}
+}
+
+func TestChecksHandler(t *testing.T) {
+	store := checks.NewStore(8)
+	id := store.Upsert("k", "Context check — demo", checks.StateFailure, []string{"missing-why: <script>x</script>"})
+	h := checksHandler(store)
+
+	req := httptest.NewRequest("GET", "/checks/"+id, nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Context check — demo") || !strings.Contains(body, "missing-why") {
+		t.Errorf("page missing content:\n%s", body)
+	}
+	if strings.Contains(body, "<script>x</script>") {
+		t.Error("unescaped user content (XSS)")
+	}
+
+	req = httptest.NewRequest("GET", "/checks/unknown", nil)
+	req.SetPathValue("id", "unknown")
+	w = httptest.NewRecorder()
+	h(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown id status = %d, want 404", w.Code)
 	}
 }
 

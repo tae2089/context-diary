@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tae2089/context-diary/internal/checks"
 	"github.com/tae2089/context-diary/internal/forge/github"
 	"github.com/tae2089/context-diary/internal/ingest"
 	"github.com/tae2089/context-diary/internal/mcptool"
@@ -45,6 +47,9 @@ type serveDeps struct {
 	status  func(ctx context.Context, fullName, sha, state, statusContext, description, targetURL string) error
 	// enqueue schedules async ingestion for a merged PR; false = queue full.
 	enqueue func(ev *github.PREvent) bool
+	// checkURL records an Atlantis-style detail page and returns its URL;
+	// nil when CONTEXT_DIARY_BASE_URL is unset (comment-link fallback).
+	checkURL func(key, title, state string, body []string) string
 }
 
 // cmdServe runs the GitHub PR bot + MCP endpoint (docs/serve-design.md).
@@ -100,6 +105,15 @@ func cmdServe(args []string) int {
 
 	gh := github.NewClientWithTokenFunc("", tokenFn)
 
+	checkStore := checks.NewStore(1024)
+	baseURL := strings.TrimRight(os.Getenv("CONTEXT_DIARY_BASE_URL"), "/")
+	checkURL := func(key, title, state string, body []string) string {
+		if baseURL == "" {
+			return ""
+		}
+		return baseURL + "/checks/" + checkStore.Upsert(key, title, state, body)
+	}
+
 	// Pending merged-PR events keyed by repo; the queue carries keys only,
 	// per-repo FIFO of events lives here.
 	var pmu sync.Mutex
@@ -134,7 +148,10 @@ func cmdServe(args []string) int {
 				log.Printf("ingested %s: %d entries (%d scanned)", ev.FullName, res.Inserted, res.Scanned)
 			}
 			if ev.MergeCommitSHA != "" {
-				if serr := gh.SetStatus(ctx, ev.FullName, ev.MergeCommitSHA, state, statusContextIngest, desc, ""); serr != nil {
+				body := []string{desc}
+				body = append(body, res.Warnings...)
+				target := checkURL(ingestCheckKey(ev), "Ingest "+ev.FullName, state, body)
+				if serr := gh.SetStatus(ctx, ev.FullName, ev.MergeCommitSHA, state, statusContextIngest, desc, target); serr != nil {
 					log.Printf("set ingest status %s: %v", ev.FullName, serr)
 				}
 			}
@@ -166,6 +183,9 @@ func cmdServe(args []string) int {
 			return false
 		},
 	}
+	if baseURL != "" {
+		deps.checkURL = checkURL
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /webhook/github", webhookHandler(deps))
@@ -185,6 +205,7 @@ func cmdServe(args []string) int {
 		log.Printf("warning: CONTEXT_DIARY_MCP_TOKEN not set — /mcp is unauthenticated; deploy inside a trusted network only")
 	}
 	mux.Handle("/mcp", mcpHandler)
+	mux.HandleFunc("GET /checks/{id}", checksHandler(checkStore))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -237,6 +258,60 @@ func githubTokenFn() (func(context.Context) (string, error), string, error) {
 	return app.Token, fmt.Sprintf("github app %s (installation %s)", appID, instID), nil
 }
 
+// ingestCheckKey keys the ingest detail page so pending and final share a URL.
+func ingestCheckKey(ev *github.PREvent) string {
+	return "ingest:" + ev.FullName + "#" + ev.MergeCommitSHA
+}
+
+// checkBodyLines renders lint detail lines for the check page.
+func checkBodyLines(prBody string) []string {
+	msg := "subject\n\n" + prBody
+	vs := trailer.Lint(msg)
+	if len(vs) == 0 {
+		var lines []string
+		lines = append(lines, "On merge, this PR will be indexed as:")
+		for _, t := range trailer.Parse(msg) {
+			lines = append(lines, "  "+t.Key+": "+t.Value)
+		}
+		return lines
+	}
+	var lines []string
+	for _, v := range vs {
+		lines = append(lines, v.Code+": "+v.Msg)
+	}
+	lines = append(lines, "", "Add trailers to the END of the PR description:", "")
+	lines = append(lines, trailer.Template()...)
+	return lines
+}
+
+var checkPage = template.Must(template.New("check").Parse(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{{.Title}}</title>
+<style>
+body{font-family:ui-monospace,Menlo,monospace;max-width:760px;margin:3rem auto;padding:0 1rem;color:#1f2328}
+.state{display:inline-block;padding:2px 10px;border-radius:12px;color:#fff;font-size:.85rem}
+.success{background:#1a7f37}.failure{background:#cf222e}.error{background:#cf222e}.pending{background:#9a6700}
+pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow-x:auto}
+footer{margin-top:2rem;color:#656d76;font-size:.8rem}
+</style></head><body>
+<h2>{{.Title}}</h2>
+<p><span class="state {{.State}}">{{.State}}</span> · updated {{.UpdatedAt.Format "2006-01-02 15:04:05 MST"}}</p>
+<pre>{{range .Body}}{{.}}
+{{end}}</pre>
+<footer>context-diary — this page is ephemeral (server restart clears it); the durable record is the bot comment and the index.</footer>
+</body></html>`))
+
+func checksHandler(store *checks.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, ok := store.Get(r.PathValue("id"))
+		if !ok {
+			http.Error(w, "unknown or expired check (the server may have restarted)", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = checkPage.Execute(w, c)
+	}
+}
+
 // bearerAuth guards a handler with a constant-time bearer token check.
 func bearerAuth(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -287,14 +362,22 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 				http.Error(w, "comment failed", http.StatusBadGateway)
 				return
 			}
-			// Lint status on the head SHA lets branch protection require it;
-			// its Details link opens the bot comment (the explanation lives there).
+			// Lint status on the head SHA lets branch protection require it.
+			// Details: the server's own check page when CONTEXT_DIARY_BASE_URL
+			// is set (Atlantis-style), else the bot comment.
 			if ev.HeadSHA != "" {
 				state, desc := github.StatusSuccess, "context trailers present"
 				if !bodyClean(ev.Body) {
 					state, desc = github.StatusFailure, "PR description is missing context trailers (see Details)"
 				}
-				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, desc, commentURL); err != nil {
+				target := commentURL
+				if deps.checkURL != nil {
+					target = deps.checkURL(
+						fmt.Sprintf("lint:%s#%d", ev.FullName, ev.Number),
+						fmt.Sprintf("Context check — %s #%d", ev.FullName, ev.Number),
+						state, checkBodyLines(ev.Body))
+				}
+				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, desc, target); err != nil {
 					log.Printf("set lint status %s#%d: %v", ev.FullName, ev.Number, err)
 				}
 			}
@@ -305,8 +388,12 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 				return
 			}
 			if ev.MergeCommitSHA != "" {
+				target := ""
+				if deps.checkURL != nil {
+					target = deps.checkURL(ingestCheckKey(ev), "Ingest "+ev.FullName, github.StatusPending, []string{"ingest queued"})
+				}
 				if err := deps.status(r.Context(), ev.FullName, ev.MergeCommitSHA,
-					github.StatusPending, statusContextIngest, "ingest queued", ""); err != nil {
+					github.StatusPending, statusContextIngest, "ingest queued", target); err != nil {
 					log.Printf("set pending status %s: %v", ev.FullName, err)
 				}
 			}

@@ -26,6 +26,7 @@ context-diary serve
 | `CONTEXT_DIARY_DB` (or `DATABASE_URL`) | Postgres DSN |
 | `GITHUB_WEBHOOK_SECRET` | HMAC-SHA256 webhook verification |
 | `CONTEXT_DIARY_MCP_TOKEN` | optional bearer token guarding `/mcp` |
+| `CONTEXT_DIARY_BASE_URL` | optional public URL of this server; when set, status Details links open the server's own `/checks/{id}` pages (Atlantis-style) instead of the bot comment |
 | **GitHub auth — one of:** | |
 | `GITHUB_TOKEN` | PAT (comments, statuses, mirror clone) — wins when set |
 | `GITHUB_APP_ID` + `GITHUB_APP_INSTALLATION_ID` + `GITHUB_APP_PRIVATE_KEY` (or `_FILE`) | GitHub App: RS256 app JWT → installation token, cached and auto-refreshed hourly. Preferred for real deployments (per-repo installation scope, rotating tokens). |
@@ -49,8 +50,9 @@ W8    IF GitHub call fails -> 502 logged (redelivery is MANUAL on GitHub;
       the next PR event retries naturally)
 W8a CALL set commit status on head SHA: context-diary/context
       success "context trailers present" | failure "missing trailers"
-      target_url = the bot comment's html_url — the status "Details"
-      link opens the explanation (no separate detail page or state)
+      target_url = /checks/{id} on this server when CONTEXT_DIARY_BASE_URL
+      is set (Atlantis-style detail page, in-memory, restart-ephemeral),
+      else the bot comment's html_url
       -> branch protection can REQUIRE this status, blocking merge harder
          than the comment can
 W8b   IF status call fails -> log only (comment is the primary UX)
@@ -76,6 +78,8 @@ M8  ingest.Run(store, mirror, repoName, default branch, walk mode)
       — identical path to `context-diary index`: cursor, ON CONFLICT dedup
 M9  set status on merge SHA:
       success "indexed N entries" | error <reason>
+      target_url = the same /checks/{id} page as the pending status,
+      updated in place with the result + warnings (when base URL set)
       (terminal status always set on error paths so pending never dangles)
 ```
 
