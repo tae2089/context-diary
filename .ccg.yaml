@@ -1,0 +1,61 @@
+output:
+  dir: ./docs
+  per_file: true
+  index: true
+
+# exclude: regex 패턴 목록. 파일 경로가 매칭되면 파싱에서 제외된다.
+exclude:
+  - ".*_test\\.go$"
+  - ".*\\.sh$"
+  - "vendor/.*"
+  - "node_modules/.*"
+  - ".*\\.pb\\.go$"
+  - "bin/.*"
+  - "docs/.*"
+  - "web/wiki/dist/.*"
+  - "web/wiki/node_modules/.*"
+  - "testdata/.*"
+  - ".*\\.gen\\.go$"
+  - "scripts/.*"
+
+comment_tags:
+  standard:
+    - param
+    - return
+    - see
+  extended:
+    - intent
+    - domainRule
+    - sideEffect
+    - mutates
+    - requires
+    - ensures
+
+rules:
+  - pattern: ".*_test\\.go(::.*)?$"
+    category: orphan
+    action: ignore
+  - pattern: ".*\\.sh(::.*)?$"
+    category: orphan
+    action: ignore
+  - pattern: "archive/.*"
+    category: orphan
+    action: ignore
+  - pattern: "docs/.*"
+    category: orphan
+    action: ignore
+  - pattern: "web/wiki/dist/.*"
+    category: orphan
+    action: ignore
+  - pattern: "testdata/.*"
+    category: orphan
+    action: ignore
+  - pattern: npm/.*
+    category: orphan
+    action: ignore
+  - pattern: "cmd/.*"
+    category: missing
+    action: ignore
+  - pattern: "cmd/.*"
+    category: unannotated
+    action: ignore
