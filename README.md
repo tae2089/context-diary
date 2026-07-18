@@ -63,23 +63,22 @@ cache) — the right trade for a self-hosted OSS deployment. Set
 
 ## Merge strategies
 
-Trailers must survive the path to your default branch.
-**Recommendation: don't use merge commits.** Use rebase merge or squash
-merge, and disable the rest in the repository settings so the guideline is
-enforced, not just documented:
+Trailers must survive the path to your default branch. The PR bot validates
+BOTH carriers and passes when either does: trailers in the PR description
+(squash teams), or trailers on every non-merge branch commit (merge/rebase
+teams). Pick the row that matches how much context you want to keep:
 
-> Settings → General → Pull Requests: uncheck **"Allow merge commits"**;
-> for squash, set the default message to **"Pull request title and
-> description"**.
+| Merge strategy | Context granularity | What to do |
+| --- | --- | --- |
+| Merge commits (context-maximal — best for AI-agent-authored repos) | every branch commit, individually | Commits carry trailers (the hook + agents handle this); index and serve with `--walk full`. The merge commit itself carries none — it is a stitch, not a change. |
+| Squash merge (least discipline — best for human-heavy teams) | one entry per PR | Write trailers in the PR description and set the squash default to **"Pull request title and description"**. Branch WIP commits need nothing — they are discarded. |
+| Rebase merge | every branch commit | Commits land unchanged. Needs the same per-commit discipline as merge commits, plus clean-history habits (no WIP commits). |
 
-| Merge strategy | What to do |
-| --- | --- |
-| Rebase merge (recommended) | Nothing — commits land unchanged. |
-| Squash merge (recommended) | Write trailers in the PR description; with the setting above they become the commit message. Enforce before merge with ONE of: the `context-diary/context` status from a running `serve` (its Details link opens the bot comment), or the [PR lint action](examples/github-actions/pr-context-lint.yml) for teams without a server — running both is redundant. |
-| Merge commits (discouraged) | Trailers never reach the merge commit itself and side-branch commits are off the default first-parent walk. If you must keep them (or for pre-adoption history), index with `context-diary index --walk full`. |
-
-Either way, `context-diary lint` in CI on the default branch is the safety
-net that catches anything that slipped through.
+Enforce before merge with the `context-diary/context` required status from a
+running `serve`, or the [PR lint action](examples/github-actions/pr-context-lint.yml)
+(PR-description path only) for teams without a server. Either way,
+`context-diary lint` in CI on the default branch is the safety net that
+catches anything that slipped through.
 
 ## Design principles
 

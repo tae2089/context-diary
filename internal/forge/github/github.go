@@ -159,6 +159,36 @@ func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusCont
 	return c.do(ctx, "POST", fmt.Sprintf("/repos/%s/statuses/%s", fullName, sha), body, nil)
 }
 
+// PRCommit is one commit of a pull request branch.
+type PRCommit struct {
+	SHA     string
+	Message string
+	Merge   bool // more than one parent
+}
+
+// ListPRCommits returns the PR's branch commits (first page, 100 max —
+// enough for the validation use; huge PRs are backstopped by lint on main).
+func (c *Client) ListPRCommits(ctx context.Context, fullName string, number int) ([]PRCommit, error) {
+	var raw []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
+	}
+	path := fmt.Sprintf("/repos/%s/pulls/%d/commits?per_page=100", fullName, number)
+	if err := c.do(ctx, "GET", path, nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]PRCommit, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, PRCommit{SHA: r.SHA, Message: r.Commit.Message, Merge: len(r.Parents) > 1})
+	}
+	return out, nil
+}
+
 // UpsertComment maintains exactly one bot comment per PR, identified by
 // marker: update in place when found, create otherwise (design W6-W7).
 // Returns the comment's html_url — the status "Details" target.

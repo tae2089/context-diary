@@ -28,7 +28,6 @@ import (
 	"github.com/tae2089/context-diary/internal/preview"
 	"github.com/tae2089/context-diary/internal/queue"
 	"github.com/tae2089/context-diary/internal/store"
-	"github.com/tae2089/context-diary/internal/trailer"
 )
 
 const serveVersion = "0.1.0"
@@ -50,6 +49,9 @@ type serveDeps struct {
 	// checkURL records an Atlantis-style detail page and returns its URL;
 	// nil when CONTEXT_DIARY_BASE_URL is unset (comment-link fallback).
 	checkURL func(key, title, state string, body []string) string
+	// prCommits fetches the PR's branch commits for the commit-path check;
+	// errors degrade to body-only evaluation.
+	prCommits func(ctx context.Context, fullName string, number int) ([]preview.Commit, error)
 }
 
 // cmdServe runs the GitHub PR bot + MCP endpoint (docs/serve-design.md).
@@ -166,6 +168,17 @@ func cmdServe(args []string) int {
 			return gh.UpsertComment(ctx, fullName, number, preview.Marker, body)
 		},
 		status: gh.SetStatus,
+		prCommits: func(ctx context.Context, fullName string, number int) ([]preview.Commit, error) {
+			raw, err := gh.ListPRCommits(ctx, fullName, number)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]preview.Commit, 0, len(raw))
+			for _, c := range raw {
+				out = append(out, preview.Commit{SHA: c.SHA, Message: c.Message, Merge: c.Merge})
+			}
+			return out, nil
+		},
 		enqueue: func(ev *github.PREvent) bool {
 			pmu.Lock()
 			pending[ev.FullName] = append(pending[ev.FullName], ev)
@@ -263,27 +276,6 @@ func ingestCheckKey(ev *github.PREvent) string {
 	return "ingest:" + ev.FullName + "#" + ev.MergeCommitSHA
 }
 
-// checkBodyLines renders lint detail lines for the check page.
-func checkBodyLines(prBody string) []string {
-	msg := "subject\n\n" + prBody
-	vs := trailer.Lint(msg)
-	if len(vs) == 0 {
-		var lines []string
-		lines = append(lines, "On merge, this PR will be indexed as:")
-		for _, t := range trailer.Parse(msg) {
-			lines = append(lines, "  "+t.Key+": "+t.Value)
-		}
-		return lines
-	}
-	var lines []string
-	for _, v := range vs {
-		lines = append(lines, v.Code+": "+v.Msg)
-	}
-	lines = append(lines, "", "Add trailers to the END of the PR description:", "")
-	lines = append(lines, trailer.Template()...)
-	return lines
-}
-
 var checkPage = template.Must(template.New("check").Parse(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title>
 <style>
@@ -325,12 +317,6 @@ func bearerAuth(token string, next http.Handler) http.Handler {
 	})
 }
 
-// bodyClean reports whether a PR description passes the trailer lint
-// (same composition rule as lint-message: synthetic subject + body).
-func bodyClean(prBody string) bool {
-	return len(trailer.Lint("subject\n\n"+prBody)) == 0
-}
-
 // webhookHandler implements flows W1-W9 and M1-M7 of docs/serve-design.md.
 func webhookHandler(deps serveDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +342,20 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 		switch {
 		case ev.Action == "opened" || ev.Action == "edited" ||
 			ev.Action == "reopened" || ev.Action == "synchronize":
-			commentURL, err := deps.comment(r.Context(), ev.FullName, ev.Number, preview.Comment(ev.Body))
+			// Dual-path evaluation: PR description (squash teams) OR every
+			// branch commit (merge/rebase teams). Commit fetch failure
+			// degrades to body-only — never blocks the webhook.
+			var commits []preview.Commit
+			if deps.prCommits != nil {
+				var err error
+				if commits, err = deps.prCommits(r.Context(), ev.FullName, ev.Number); err != nil {
+					log.Printf("list PR commits %s#%d: %v (falling back to body-only check)", ev.FullName, ev.Number, err)
+					commits = nil
+				}
+			}
+			res := preview.Evaluate(ev.Body, commits)
+
+			commentURL, err := deps.comment(r.Context(), ev.FullName, ev.Number, res.Comment)
 			if err != nil {
 				log.Printf("comment on %s#%d: %v", ev.FullName, ev.Number, err)
 				http.Error(w, "comment failed", http.StatusBadGateway)
@@ -366,18 +365,18 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 			// Details: the server's own check page when CONTEXT_DIARY_BASE_URL
 			// is set (Atlantis-style), else the bot comment.
 			if ev.HeadSHA != "" {
-				state, desc := github.StatusSuccess, "context trailers present"
-				if !bodyClean(ev.Body) {
-					state, desc = github.StatusFailure, "PR description is missing context trailers (see Details)"
+				state := github.StatusSuccess
+				if !res.Pass {
+					state = github.StatusFailure
 				}
 				target := commentURL
 				if deps.checkURL != nil {
 					target = deps.checkURL(
 						fmt.Sprintf("lint:%s#%d", ev.FullName, ev.Number),
 						fmt.Sprintf("Context check — %s #%d", ev.FullName, ev.Number),
-						state, checkBodyLines(ev.Body))
+						state, res.Detail)
 				}
-				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, desc, target); err != nil {
+				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, res.Desc, target); err != nil {
 					log.Printf("set lint status %s#%d: %v", ev.FullName, ev.Number, err)
 				}
 			}

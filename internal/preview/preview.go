@@ -1,6 +1,12 @@
-// Package preview renders the bot's single PR comment
-// (docs/serve-design.md W4-W5): an index preview when the PR description is
-// clean, or violations plus a fill-in template when it is not. Pure.
+// Package preview evaluates a PR's context coverage and renders the bot's
+// single comment (docs/serve-design.md W4-W5). Two passing paths:
+//
+//   - body path (squash teams): the PR description carries trailers — the
+//     "PR title & description" squash setting lands them in git;
+//   - commit path (merge/rebase teams): every non-merge branch commit
+//     carries trailers — they land on main individually.
+//
+// Pure: no IO.
 package preview
 
 import (
@@ -13,18 +19,66 @@ import (
 // Marker identifies the bot's comment for idempotent upserts.
 const Marker = "<!-- context-diary -->"
 
-// Comment renders the bot comment for a PR description. The body is linted
-// the way GitHub's "PR title & description" squash setting will compose the
-// commit message (synthetic subject + body).
-func Comment(prBody string) string {
-	msg := "subject\n\n" + prBody
-	vs := trailer.Lint(msg)
+// Commit is one PR branch commit under evaluation.
+type Commit struct {
+	SHA     string
+	Message string
+	Merge   bool // merge commits are exempt (they are stitches, not changes)
+}
+
+// Result is the evaluation outcome for the comment, status, and check page.
+type Result struct {
+	Pass    bool
+	Desc    string   // short commit-status description
+	Comment string   // bot comment markdown
+	Detail  []string // check detail page lines
+}
+
+// Evaluate lints both paths and renders the verdict.
+func Evaluate(prBody string, commits []Commit) Result {
+	bodyMsg := "subject\n\n" + prBody
+	bodyVs := trailer.Lint(bodyMsg)
+	bodyClean := len(bodyVs) == 0
+
+	type commitState struct {
+		sha, subject, why string
+		clean             bool
+	}
+	var states []commitState
+	commitsClean := true
+	checked := 0
+	for _, c := range commits {
+		if c.Merge {
+			continue
+		}
+		checked++
+		clean := len(trailer.Lint(c.Message)) == 0
+		why := ""
+		for _, t := range trailer.Parse(c.Message) {
+			if strings.EqualFold(t.Key, trailer.KeyWhy) && t.Value != "" {
+				why = t.Value
+				break
+			}
+		}
+		states = append(states, commitState{
+			sha:     short(c.SHA),
+			subject: firstLine(c.Message),
+			why:     why,
+			clean:   clean,
+		})
+		if !clean {
+			commitsClean = false
+		}
+	}
+	commitPath := checked > 0 && commitsClean
 
 	var b strings.Builder
 	b.WriteString(Marker + "\n")
-	if len(vs) == 0 {
-		b.WriteString("### Context check ✅\n\nOn merge, this PR will be indexed as:\n\n")
-		for _, t := range trailer.Parse(msg) {
+
+	switch {
+	case bodyClean:
+		b.WriteString("### Context check ✅ (PR description)\n\nOn squash merge, this PR will be indexed as:\n\n")
+		for _, t := range trailer.Parse(bodyMsg) {
 			switch {
 			case strings.EqualFold(t.Key, trailer.KeyWhy):
 				fmt.Fprintf(&b, "- **Why:** %s\n", t.Value)
@@ -36,17 +90,75 @@ func Comment(prBody string) string {
 				fmt.Fprintf(&b, "- **Ref:** %s\n", t.Value)
 			}
 		}
-		return b.String()
-	}
+		return Result{
+			Pass:    true,
+			Desc:    "context trailers present (PR description)",
+			Comment: b.String(),
+			Detail:  detailFromComment(b.String()),
+		}
 
-	b.WriteString("### Context check ❌\n\nThis PR description is missing context trailers:\n\n")
-	for _, v := range vs {
-		fmt.Fprintf(&b, "- `%s`: %s\n", v.Code, v.Msg)
+	case commitPath:
+		fmt.Fprintf(&b, "### Context check ✅ (branch commits)\n\nAll %d non-merge commits carry context and will be indexed individually on a merge or rebase merge:\n\n", checked)
+		for _, s := range states {
+			fmt.Fprintf(&b, "- `%s` %s\n  - why: %s\n", s.sha, s.subject, s.why)
+		}
+		b.WriteString("\n⚠️ A **squash** merge discards these commit messages — if this repo squashes, add the trailers to the PR description too.\n")
+		return Result{
+			Pass:    true,
+			Desc:    fmt.Sprintf("context present on all %d commits", checked),
+			Comment: b.String(),
+			Detail:  detailFromComment(b.String()),
+		}
+
+	default:
+		b.WriteString("### Context check ❌\n\nNeither path carries context:\n\n**PR description** is missing trailers:\n")
+		for _, v := range bodyVs {
+			fmt.Fprintf(&b, "- `%s`: %s\n", v.Code, v.Msg)
+		}
+		if checked == 0 {
+			b.WriteString("\n**Branch commits**: none to check.\n")
+		} else {
+			b.WriteString("\n**Branch commits** that lack context:\n")
+			for _, s := range states {
+				if !s.clean {
+					fmt.Fprintf(&b, "- `%s` %s\n", s.sha, s.subject)
+				}
+			}
+		}
+		b.WriteString("\nFix EITHER path — add this to the **end** of the PR description (squash teams):\n\n```\n")
+		for _, line := range trailer.Template() {
+			b.WriteString(line + "\n")
+		}
+		b.WriteString("```\n\nor amend the listed commits with trailers (merge/rebase teams).\n")
+		return Result{
+			Pass:    false,
+			Desc:    "missing context trailers (see Details)",
+			Comment: b.String(),
+			Detail:  detailFromComment(b.String()),
+		}
 	}
-	b.WriteString("\nAdd this to the **end** of the PR description and fill it in:\n\n```\n")
-	for _, line := range trailer.Template() {
-		b.WriteString(line + "\n")
+}
+
+// detailFromComment reuses the comment content for the check page, minus
+// the HTML marker.
+func detailFromComment(md string) []string {
+	lines := strings.Split(strings.TrimSpace(md), "\n")
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "<!--") {
+		lines = lines[1:]
 	}
-	b.WriteString("```\n\nWith the \"squash and merge (PR title & description)\" setting, these trailers become part of the commit message and are indexed by context-diary.\n")
-	return b.String()
+	return lines
+}
+
+func short(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }

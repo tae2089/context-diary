@@ -40,10 +40,16 @@ Flags: `--addr :8080`, `--cache-dir` (bare mirrors; default user cache dir),
 W1  verify X-Hub-Signature-256 (HMAC, constant-time)
 W2    IF invalid/missing -> 401, no side effects
 W3  parse event; IF not pull_request or unhandled action -> 200 "ignored"
-W4  lint PR body (lint-message semantics: synthetic subject + body)
+W4  evaluate BOTH context carriers (preview.Evaluate):
+      body path   — PR description trailers (squash teams)
+      commit path — every non-merge branch commit has trailers
+                    (merge/rebase teams; GET /pulls/{n}/commits, first
+                    100; fetch failure degrades to body-only)
+      pass = either path
 W5  render ONE comment:
-      clean  -> "will be indexed as" preview (why/scopes/decisions)
-      dirty  -> violations + copy-paste template block
+      body path ✅   -> "will be indexed as" preview (why/scopes/decisions)
+      commit path ✅ -> per-commit why list + squash-discard warning
+      both ❌        -> body violations + offending commits + template
 W6  CALL GitHub: find bot comment by marker in first page of comments
 W7    found -> PATCH comment; not found -> POST comment
 W8    IF GitHub call fails -> 502 logged (redelivery is MANUAL on GitHub;

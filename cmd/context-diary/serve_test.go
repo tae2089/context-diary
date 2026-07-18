@@ -13,6 +13,7 @@ import (
 
 	"github.com/tae2089/context-diary/internal/checks"
 	"github.com/tae2089/context-diary/internal/forge/github"
+	"github.com/tae2089/context-diary/internal/preview"
 )
 
 const testSecret = "hook-secret"
@@ -158,6 +159,64 @@ func TestWebhookClosedUnmergedIgnored(t *testing.T) {
 	h(w, signedRequest(t, "pull_request", prPayload("closed", false, "x")))
 	if w.Code != http.StatusOK || len(rec.enqueued)+len(rec.comments)+len(rec.statuses) != 0 {
 		t.Errorf("closed-unmerged: status=%d side effects", w.Code)
+	}
+}
+
+func TestWebhookCommitPathPasses(t *testing.T) {
+	rec := &recorded{}
+	deps := serveDeps{
+		secret: []byte(testSecret),
+		comment: func(_ context.Context, _ string, _ int, body string) (string, error) {
+			rec.comments = append(rec.comments, body)
+			return "https://github.test/comment/1", nil
+		},
+		status: func(_ context.Context, _, sha, state, statusContext, _, _ string) error {
+			rec.statuses = append(rec.statuses, fmt.Sprintf("%s:%s:%s", sha, state, statusContext))
+			return nil
+		},
+		enqueue: func(*github.PREvent) bool { return true },
+		prCommits: func(context.Context, string, int) ([]preview.Commit, error) {
+			return []preview.Commit{
+				{SHA: "abc1234567", Message: "feat: a\n\nContext-Why: commit reason a\n"},
+				{SHA: "def7654321", Message: "feat: b\n\nContext-Why: commit reason b\n"},
+			}, nil
+		},
+	}
+	h := webhookHandler(deps)
+	w := httptest.NewRecorder()
+	// PR body has NO trailers — commit path must carry the pass
+	h(w, signedRequest(t, "pull_request", prPayload("opened", false, "plain description")))
+	if len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:success:context-diary/context" {
+		t.Errorf("statuses = %v (commit path should pass)", rec.statuses)
+	}
+	if len(rec.comments) != 1 || !strings.Contains(rec.comments[0], "branch commits") {
+		t.Errorf("comment should credit the commit path: %v", rec.comments)
+	}
+}
+
+func TestWebhookCommitFetchFailureFallsBackToBody(t *testing.T) {
+	rec := &recorded{}
+	deps := serveDeps{
+		secret: []byte(testSecret),
+		comment: func(_ context.Context, _ string, _ int, body string) (string, error) {
+			rec.comments = append(rec.comments, body)
+			return "", nil
+		},
+		status: func(_ context.Context, _, sha, state, statusContext, _, _ string) error {
+			rec.statuses = append(rec.statuses, fmt.Sprintf("%s:%s", sha, state))
+			return nil
+		},
+		enqueue: func(*github.PREvent) bool { return true },
+		prCommits: func(context.Context, string, int) ([]preview.Commit, error) {
+			return nil, fmt.Errorf("api down")
+		},
+	}
+	h := webhookHandler(deps)
+	w := httptest.NewRecorder()
+	body := "Fix.\n\nContext-Why: body reason\n"
+	h(w, signedRequest(t, "pull_request", prPayload("opened", false, body)))
+	if w.Code != http.StatusOK || len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:success" {
+		t.Errorf("fallback to body-only failed: code=%d statuses=%v", w.Code, rec.statuses)
 	}
 }
 

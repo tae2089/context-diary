@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,30 @@ func TestParsePREvent(t *testing.T) {
 		ev.CloneURL != "https://github.com/acme/shop.git" ||
 		ev.HeadSHA != "hhh111" || ev.MergeCommitSHA != "mmm999" {
 		t.Errorf("parsed event = %+v", ev)
+	}
+}
+
+func TestListPRCommits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/shop/pulls/7/commits" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		w.Write([]byte(`[
+			{"sha": "aaa", "commit": {"message": "feat: a\n\nContext-Why: r"}, "parents": [{"sha": "p1"}]},
+			{"sha": "mmm", "commit": {"message": "Merge branch"}, "parents": [{"sha": "p1"}, {"sha": "p2"}]}
+		]`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	commits, err := c.ListPRCommits(t.Context(), "acme/shop", 7)
+	if err != nil {
+		t.Fatalf("ListPRCommits: %v", err)
+	}
+	if len(commits) != 2 || commits[0].SHA != "aaa" || commits[0].Merge || !commits[1].Merge {
+		t.Errorf("commits = %+v", commits)
+	}
+	if !strings.Contains(commits[0].Message, "Context-Why") {
+		t.Errorf("message lost: %q", commits[0].Message)
 	}
 }
 
