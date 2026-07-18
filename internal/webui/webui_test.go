@@ -14,21 +14,30 @@ import (
 type fakeStore struct {
 	lastQuery store.Query
 	lastRepo  string
+	total     int // total rows available; Search honors Limit/Offset over this
 }
 
 func (f *fakeStore) Search(_ context.Context, repo string, q store.Query) ([]store.Result, error) {
 	f.lastRepo, f.lastQuery = repo, q
-	return []store.Result{{
-		Repo:        "tae2089/context-diary",
-		Hash:        "abc1234567890",
-		Subject:     "feat: add <script>alert(1)</script> indexer",
-		Why:         "환불이 정산보다 먼저 실행되어 중복 환불 발생",
-		AuthorName:  "tae2089",
-		CommittedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC),
-		Scopes:      []string{"payment/refund"},
-		Decisions:   []string{"webhook over polling; simpler"},
-		Refs:        []string{"https://example.com/pm-42"},
-	}}, nil
+	total := f.total
+	if total == 0 {
+		total = 1
+	}
+	var out []store.Result
+	for i := q.Offset; i < total && len(out) < q.Limit; i++ {
+		out = append(out, store.Result{
+			Repo:        "tae2089/context-diary",
+			Hash:        "abc1234567890",
+			Subject:     "feat: add <script>alert(1)</script> indexer",
+			Why:         "환불이 정산보다 먼저 실행되어 중복 환불 발생",
+			AuthorName:  "tae2089",
+			CommittedAt: time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC),
+			Scopes:      []string{"payment/refund"},
+			Decisions:   []string{"webhook over polling; simpler"},
+			Refs:        []string{"https://example.com/pm-42"},
+		})
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListScopes(context.Context, string) ([]store.ScopeCount, error) {
@@ -86,5 +95,44 @@ func TestSearchPassesFilters(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "환불") {
 		t.Error("query not echoed in form")
+	}
+}
+
+func TestPagination(t *testing.T) {
+	// 45 rows, pageSize 20 → page 1 has next, no prev; page 3 has prev, no next.
+	fs := &fakeStore{total: 45}
+	h := NewHandler(fs)
+
+	w := get(t, h, "/ui/")
+	if fs.lastQuery.Offset != 0 || fs.lastQuery.Limit != pageSize+1 {
+		t.Errorf("page 1 query = %+v (want offset 0, limit %d)", fs.lastQuery, pageSize+1)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "page=2") {
+		t.Error("page 1 must link next(2)")
+	}
+	if strings.Contains(body, `href="/ui/search?page=0`) {
+		t.Error("page 1 must not offer a prev link")
+	}
+
+	w = get(t, h, "/ui/search?scope=payment/refund&page=2")
+	if fs.lastQuery.Offset != pageSize {
+		t.Errorf("page 2 offset = %d, want %d", fs.lastQuery.Offset, pageSize)
+	}
+	body = w.Body.String()
+	if !strings.Contains(body, "page=1") || !strings.Contains(body, "page=3") {
+		t.Errorf("page 2 must link prev(1) and next(3):\n%s", body)
+	}
+	if !strings.Contains(body, "scope=payment%2Frefund") {
+		t.Error("page links must preserve the scope filter")
+	}
+
+	w = get(t, h, "/ui/search?page=3")
+	body = w.Body.String()
+	if !strings.Contains(body, "page=2") {
+		t.Error("page 3 must link prev(2)")
+	}
+	if strings.Contains(body, "page=4") {
+		t.Error("page 3 is the last page; must not offer next")
 	}
 }
