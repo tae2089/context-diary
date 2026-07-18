@@ -51,6 +51,13 @@ cd your-repo
 context-diary init --agent claude-code   # hooks + config + CLAUDE.md snippet
 ```
 
+Or run the server from the Docker image (needs git-capable runtime — included):
+
+```sh
+docker build -t context-diary .
+docker run -p 8080:8080   -e CONTEXT_DIARY_DB=postgres://...   -e GITHUB_WEBHOOK_SECRET=...   -e GITHUB_APP_ID=... -e GITHUB_APP_INSTALLATION_ID=...   -v ctxdiary-keys:/keys -e GITHUB_APP_PRIVATE_KEY_FILE=/keys/app.pem   -v ctxdiary-mirrors:/var/cache/context-diary   context-diary   # default command: serve
+```
+
 Roadmap:
 
 - [x] Trailer format spec (v0.1)

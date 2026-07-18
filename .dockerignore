@@ -1,0 +1,9 @@
+.git
+.github
+_workspace
+docs
+examples
+*.md
+Dockerfile
+.dockerignore
+.context-diary.toml
