@@ -1,6 +1,12 @@
-# Validates that the PR description carries context-diary trailers, so a
-# "PR title & description" squash merge lands them in the commit message.
-# Copy into .github/workflows/ of your repository.
+# PR context lint for teams WITHOUT a running `context-diary serve`
+# (the serve bot's context-diary/context status covers both paths already —
+# run one enforcement, not both). Copy into .github/workflows/ and keep the
+# job that matches your merge strategy:
+#
+#   squash teams      → keep `description` (trailers live in the PR body,
+#                       landed by the "PR title & description" squash setting)
+#   merge/rebase teams → keep `commits` (every non-merge branch commit
+#                       carries its own trailers)
 name: PR context lint
 
 on:
@@ -8,7 +14,8 @@ on:
     types: [opened, edited, reopened, synchronize]
 
 jobs:
-  lint:
+  # Squash path: the PR description becomes the squash commit message.
+  description:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-go@v5
@@ -19,3 +26,17 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: printf '%s\n' "$PR_BODY" | context-diary lint-message -
+
+  # Merge/rebase path: branch commits land on main individually.
+  commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go install github.com/tae2089/context-diary/cmd/context-diary@latest
+      - name: Lint branch commits for context trailers
+        run: context-diary lint ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
