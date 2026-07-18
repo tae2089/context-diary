@@ -124,7 +124,7 @@ func toSearchResult(rs []store.Result) searchResult {
 // @intent expose the context index to AI assistants as MCP tools so anyone can ask why code is the way it is
 // @domainRule read-only; audience translation of answers is the calling assistant's job (write-once-developer-level principle)
 // @domainRule explain_function is registered only when a RepoPath resolver is provided (needs a local mirror and the git CLI)
-// @see internal/store/store.go#Search
+// @see store.Store.Search
 func NewServer(deps Deps) *mcp.Server {
 	s := deps.Store
 	srv := mcp.NewServer(&mcp.Implementation{

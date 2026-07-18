@@ -42,7 +42,7 @@ type Result struct {
 // @domainRule dual-path: the PR passes when EITHER the PR description carries trailers OR every non-merge branch commit does
 // @domainRule merge commits are exempt from the commit path — they are stitches, not changes
 // @domainRule when only the commit path passes, warn that a squash merge would discard the commit messages
-// @see internal/forge/github/github.go#ListPRCommits
+// @see github.Client.ListPRCommits
 func Evaluate(prBody string, commits []Commit) Result {
 	bodyMsg := "subject\n\n" + prBody
 	bodyVs := trailer.Lint(bodyMsg)

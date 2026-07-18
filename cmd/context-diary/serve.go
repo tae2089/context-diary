@@ -343,7 +343,7 @@ func bearerAuth(token string, next http.Handler) http.Handler {
 // @domainRule a merged PR is enqueued and acknowledged with 202 immediately; ingestion runs in the background so the 10s webhook timeout is never a factor
 // @domainRule a full ingest queue returns 503 with no side effects
 // @sideEffect posts bot comments and commit statuses, and enqueues background ingestion, via the GitHub API
-// @see internal/preview/preview.go#Evaluate
+// @see preview.Evaluate
 func webhookHandler(deps serveDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))

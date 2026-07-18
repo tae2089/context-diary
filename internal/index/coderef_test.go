@@ -7,6 +7,10 @@ func TestParseCodeRef(t *testing.T) {
 		in   string
 		want *CodeRef // nil = not a code ref
 	}{
+		{"acme/shop:internal/refund/refund.go#ProcessRefund",
+			&CodeRef{Repo: "acme/shop", Path: "internal/refund/refund.go", Symbol: "ProcessRefund"}},
+		{"acme/shop:internal/refund/refund.go",
+			&CodeRef{Repo: "acme/shop", Path: "internal/refund/refund.go"}},
 		{"acme/shop//internal/refund/refund.go#ProcessRefund",
 			&CodeRef{Repo: "acme/shop", Path: "internal/refund/refund.go", Symbol: "ProcessRefund"}},
 		{"acme/shop//internal/refund/refund.go",
@@ -22,6 +26,7 @@ func TestParseCodeRef(t *testing.T) {
 		{"docs/cli-design.md", nil}, // single slash, no // boundary
 		{"https://github.com/acme/shop/issues/5", nil},
 		{"https://github.com/acme/shop/pull/7", nil},
+		{"mailto:context@example.com", nil},
 	}
 	for _, c := range cases {
 		got := ParseCodeRef(c.in)
@@ -41,7 +46,7 @@ func TestEntryCollectsCodeRefs(t *testing.T) {
 
 Context-Why: y
 Context-Ref: https://example.com/postmortem
-Context-Ref: acme/shop//internal/refund/refund.go#ProcessRefund
+Context-Ref: acme/shop:internal/refund/refund.go#ProcessRefund
 `
 	e := EntryFromCommit(meta(msg))
 	if e == nil {

@@ -16,7 +16,7 @@ import (
 // explain_function MCP tool, for local use).
 //
 // @intent implement `context-diary explain <file> <function>`: print a function why-timeline by joining git line history with the index
-// @see internal/funclog/funclog.go#CommitsTouching
+// @see funclog.CommitsTouching
 func cmdExplain(args []string) int {
 	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
 	repoName := fs.String("repo", "", "repository name in the index (default: git top-level dir name)")

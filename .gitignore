@@ -17,3 +17,5 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+context-diary
