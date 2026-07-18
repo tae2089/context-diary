@@ -74,6 +74,9 @@ type serveDeps struct {
 }
 
 // cmdServe runs the GitHub PR bot + MCP endpoint (docs/serve-design.md).
+//
+// @intent implement `context-diary serve`: wire the GitHub webhook bot, MCP endpoint, check pages, and web UI into one HTTP server
+// @sideEffect connects to Postgres, listens on the configured address, and runs a background ingest worker pool
 func cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", ":8080", "listen address")
@@ -268,6 +271,9 @@ func cmdServe(args []string) int {
 // otherwise GitHub App credentials (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID,
 // GITHUB_APP_PRIVATE_KEY or _FILE). App auth is preferred for real
 // deployments: per-repo installation scope, hourly-rotating tokens.
+//
+// @intent select the GitHub auth mode and return a per-request token resolver
+// @domainRule a personal access token (GITHUB_TOKEN) wins when set; otherwise GitHub App credentials are required
 func githubTokenFn() (func(context.Context) (string, error), string, error) {
 	if pat := os.Getenv("GITHUB_TOKEN"); pat != "" {
 		return func(context.Context) (string, error) { return pat, nil }, "personal access token", nil
@@ -299,6 +305,9 @@ func ingestCheckKey(ev *github.PREvent) string {
 	return "ingest:" + ev.FullName + "#" + ev.MergeCommitSHA
 }
 
+// checksHandler serves the Atlantis-style check detail page for a check id.
+//
+// @intent serve GET /checks/{id}: render a commit-status detail page, or 404 when the id is unknown or expired
 func checksHandler(store *checks.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, ok := store.Get(r.PathValue("id"))
@@ -312,6 +321,9 @@ func checksHandler(store *checks.Store) http.HandlerFunc {
 }
 
 // bearerAuth guards a handler with a constant-time bearer token check.
+//
+// @intent require a bearer token on the MCP endpoint when CONTEXT_DIARY_MCP_TOKEN is set
+// @domainRule the token comparison is constant-time to avoid timing oracles
 func bearerAuth(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")

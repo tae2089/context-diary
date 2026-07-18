@@ -77,6 +77,10 @@ func AgentFile(agent string) (string, error) {
 // AgentSetup creates the agent's convention file with the instructions
 // snippet when absent. An existing file is never modified (design I-3);
 // the snippet is returned as a manual instruction instead.
+//
+// @intent set up an AI-agent convention file with the trailer instructions snippet
+// @domainRule an existing convention file is never modified (I-3); the snippet is returned as a manual instruction instead
+// @sideEffect creates the CLAUDE.md/AGENTS.md file when absent
 func AgentSetup(dir, agent string) (Result, error) {
 	file, err := AgentFile(agent)
 	if err != nil {

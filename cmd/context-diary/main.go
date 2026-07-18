@@ -40,6 +40,9 @@ func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
+// run dispatches the subcommand and returns the process exit code.
+//
+// @intent single entry point that routes the CLI subcommand (init/hook/lint/index/serve/backfill/explain/scopes/instructions)
 func run(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, usage)
@@ -98,6 +101,11 @@ func warnf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "context-diary: "+format+"\n", args...)
 }
 
+// cmdInit installs the git hooks and scaffolds config, optionally setting up
+// an AI-agent convention file.
+//
+// @intent implement `context-diary init`: install hooks, scaffold config, and optionally write the agent convention snippet
+// @sideEffect writes hook scripts, .context-diary.toml, and (with --agent) a CLAUDE.md/AGENTS.md snippet
 func cmdInit(agent string) int {
 	hooksDir, custom, err := gitx.HooksDir(".")
 	if err != nil {
@@ -156,6 +164,9 @@ func printResults(results []installer.Result) {
 
 // cmdHook dispatches git hook entry points. Never-block invariant (I-1):
 // prepare-commit-msg always exits 0; commit-msg exits 1 only in strict mode.
+//
+// @intent implement the git hook entry points (prepare-commit-msg, commit-msg) invoked by git
+// @domainRule never-block (I-1): prepare-commit-msg always exits 0; commit-msg exits 1 only under strict lint
 func cmdHook(args []string) int {
 	if len(args) < 2 {
 		warnf("hook: missing arguments")
@@ -203,6 +214,10 @@ func cmdHook(args []string) int {
 	}
 }
 
+// cmdLint validates the trailers of every commit in a revision range.
+//
+// @intent implement `context-diary lint <rev-range>`: the CI gate that fails when a commit lacks context trailers
+// @ensures exit code 1 when any commit in the range has violations
 func cmdLint(revRange string) int {
 	commits, err := gitx.RevList(".", revRange)
 	if err != nil {
@@ -229,6 +244,9 @@ func cmdLint(revRange string) int {
 	return 0
 }
 
+// cmdScopes prints the configured scope slugs.
+//
+// @intent implement `context-diary scopes`: list the shared scope slugs from config
 func cmdScopes() int {
 	cfg, err := loadConfig()
 	if err != nil {

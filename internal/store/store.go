@@ -138,6 +138,8 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 // UpsertRepo ensures the repos row exists and returns its id and cursor.
+//
+// @intent ensure the repos row exists and return its id and ingest cursor
 func (s *Store) UpsertRepo(ctx context.Context, name string) (int64, string, error) {
 	var id int64
 	var cursor *string
@@ -316,6 +318,8 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 // ByHashes hydrates index entries for the given commit hashes, oldest
 // first. Hashes with no entry (no context) are simply absent from the
 // result. Empty repoName matches any repository.
+//
+// @intent hydrate index entries for a set of commit hashes, oldest first — the join step behind explain_function
 func (s *Store) ByHashes(ctx context.Context, repoName string, hashes []string) ([]Result, error) {
 	if len(hashes) == 0 {
 		return nil, nil
@@ -393,6 +397,8 @@ func (s *Store) ByRefText(ctx context.Context, q string) ([]Result, error) {
 }
 
 // ListRepos returns the indexed repository names, alphabetically.
+//
+// @intent list the indexed repository names for the UI repo filter
 func (s *Store) ListRepos(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT name FROM repos ORDER BY name`)
 	if err != nil {
@@ -411,6 +417,8 @@ func (s *Store) ListRepos(ctx context.Context) ([]string, error) {
 }
 
 // ListScopes returns distinct scopes (optionally per repo) with counts.
+//
+// @intent list the product scope slugs with entry counts, so callers can discover areas before searching
 func (s *Store) ListScopes(ctx context.Context, repoName string) ([]ScopeCount, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT cs.scope, count(*)

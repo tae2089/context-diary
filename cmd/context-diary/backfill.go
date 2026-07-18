@@ -12,6 +12,8 @@ import (
 // cmdBackfill lists commits still lacking context (message and note alike),
 // oldest first, as "hash<TAB>subject" — machine-readable input for an AI
 // agent that writes the git notes (docs/backfill.md).
+//
+// @intent implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes
 func cmdBackfill(args []string) int {
 	fs := flag.NewFlagSet("backfill", flag.ContinueOnError)
 	branch := fs.String("branch", "", "branch to scan (default: HEAD)")

@@ -27,6 +27,8 @@ type Q struct {
 }
 
 // New builds a queue with the given worker count and buffer capacity.
+//
+// @intent build a bounded worker-pool queue that serializes jobs per key
 func New(workers, capacity int, run func(ctx context.Context, key string)) *Q {
 	return &Q{
 		jobs:    make(chan string, capacity),
@@ -50,6 +52,9 @@ func (q *Q) Enqueue(key string) bool {
 }
 
 // Start launches the worker pool; workers exit when ctx is cancelled.
+//
+// @intent launch the worker pool that drains the queue until the context is cancelled
+// @domainRule same-key jobs are serialized by a per-key mutex while different keys run in parallel
 func (q *Q) Start(ctx context.Context) {
 	for range q.workers {
 		go func() {

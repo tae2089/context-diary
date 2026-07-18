@@ -22,6 +22,9 @@ func dsnFromEnv() string {
 
 // cmdIndex implements the ingestion flow (docs/indexer-design.md X1-X22).
 // Interactive command: failures are loud (exit 1), unlike the hooks.
+//
+// @intent implement `context-diary index`: scan default-branch history and upsert context entries into Postgres
+// @domainRule --rescan ignores the cursor to reflect parser upgrades and edited backfill notes; --walk selects first-parent or full DAG
 func cmdIndex(args []string) int {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	repoName := fs.String("repo", "", "repository name in the index (default: git top-level dir name)")

@@ -108,6 +108,8 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// @intent run the index query for a UI request, paginate the result, and render the page
+// @domainRule fetches pageSize+1 rows to detect a next page without a COUNT query, then trims to pageSize
 func (h *handler) results(w http.ResponseWriter, r *http.Request, data pageData) {
 	ctx := r.Context()
 	var err error
