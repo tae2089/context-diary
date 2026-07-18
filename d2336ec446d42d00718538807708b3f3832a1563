@@ -1,0 +1,5 @@
+Context-Why: Code-graph @see validation could not resolve file#symbol targets, and the double-slash code-ref delimiter was easily mistaken for an extra path slash.
+Context-Scope: ccg
+Context-Scope: spec/trailer-format
+Context-Decision: use graph-qualified symbols for @see and owner/repo:path for new code refs; continue accepting legacy repo//path refs so existing history remains indexable.
+Context-Ref: docs/trailer-format.md
