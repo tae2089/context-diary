@@ -358,6 +358,24 @@ func (s *Store) ByRefText(ctx context.Context, q string) ([]Result, error) {
 	return scanResults(rows)
 }
 
+// ListRepos returns the indexed repository names, alphabetically.
+func (s *Store) ListRepos(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT name FROM repos ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list repos: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan repo: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
 // ScopeCount is one scope with its entry count.
 type ScopeCount struct {
 	Scope string

@@ -262,6 +262,14 @@ func TestSaveAndSearch(t *testing.T) {
 		t.Errorf("ByRefText = %+v", byText)
 	}
 
+	repos, err := s.ListRepos(ctx)
+	if err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	}
+	if len(repos) != 2 || repos[0] != "acme/billing" || repos[1] != "acme/shop" {
+		t.Errorf("repos = %v", repos)
+	}
+
 	scopes, err := s.ListScopes(ctx, "acme/shop")
 	if err != nil {
 		t.Fatalf("ListScopes: %v", err)

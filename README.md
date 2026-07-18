@@ -30,10 +30,12 @@ Git is the source of truth. The server is a read-only index.
      `context-diary/context` commit status you can require via branch
      protection, and indexes merges asynchronously with a
      `context-diary/ingest` status (pending → success) on the merge commit;
-   - an MCP endpoint (`/mcp`) exposing `search_context` / `list_scopes`, so
-     anyone — including non-developers — can ask "why does order cancellation
-     work this way?" from their AI assistant and get an answer translated to
-     their level.
+   - an MCP endpoint (`/mcp`) exposing `search_context` / `list_scopes` /
+     `explain_function` / `related_by_ref`, so anyone — including
+     non-developers — can ask "why does order cancellation work this way?"
+     from their AI assistant and get an answer translated to their level;
+   - a read-only web UI (`/ui/`) for browsing and searching the index
+     without any AI assistant at all.
 
 ## Status
 
@@ -55,7 +57,7 @@ Roadmap:
 - [x] Server: GitHub PR bot + MCP endpoint (`context-diary serve`)
 - [x] GitHub App auth (PAT remains supported; App preferred for deployments)
 - [x] Backfill: context for pre-adoption history via [git notes](docs/backfill.md)
-- [ ] Web UI (if demand proves out)
+- [x] Web UI (`/ui/` on serve — search, scope browse; read-only, no JS)
 
 `serve` is deliberately single-instance (in-memory queue, local mirror
 cache) — the right trade for a self-hosted OSS deployment. Set

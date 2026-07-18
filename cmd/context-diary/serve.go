@@ -28,6 +28,7 @@ import (
 	"github.com/tae2089/context-diary/internal/preview"
 	"github.com/tae2089/context-diary/internal/queue"
 	"github.com/tae2089/context-diary/internal/store"
+	"github.com/tae2089/context-diary/internal/webui"
 )
 
 const serveVersion = "0.1.0"
@@ -219,6 +220,10 @@ func cmdServe(args []string) int {
 	}
 	mux.Handle("/mcp", mcpHandler)
 	mux.HandleFunc("GET /checks/{id}", checksHandler(checkStore))
+	mux.Handle("GET /ui/", webui.NewHandler(s))
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -233,7 +238,7 @@ func cmdServe(args []string) int {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("context-diary serve listening on %s (webhook: /webhook/github, mcp: /mcp)", *addr)
+	log.Printf("context-diary serve listening on %s (webhook: /webhook/github, mcp: /mcp, ui: /ui/)", *addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		warnf("%v", err)
 		return 1

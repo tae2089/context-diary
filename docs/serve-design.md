@@ -15,7 +15,10 @@ context-diary serve
 ├─ POST /webhook/github   PR opened/edited → lint body, upsert preview comment
 │                         PR merged        → fetch mirror, ingest (same path as CLI)
 ├─ /mcp                   MCP streamable HTTP (official Go SDK)
-│                         tools: search_context, list_scopes
+│                         tools: search_context, list_scopes,
+│                                explain_function, related_by_ref
+├─ /ui/                   read-only web UI (server-rendered, no JS):
+│                         search (FTS+trigram) + scope/repo filters
 └─ /healthz
 ```
 
@@ -115,6 +118,16 @@ Official `github.com/modelcontextprotocol/go-sdk`, streamable HTTP at `/mcp`.
 Both are read-only over the store; `repo` omitted = across all indexed
 repos. Answer-language/audience translation is the calling assistant's job
 (write-once-developer-level principle).
+
+## Web UI
+
+`/ui/` is a server-rendered read view over the index: a search box
+(FTS + trigram, so Korean stems match), scope chips with counts, a repo
+filter, and entry cards (why, decisions, refs, forge commit links).
+html/template embedded in the binary — no JavaScript, no frontend
+toolchain, nothing to build or deploy separately. Same trust posture as
+/mcp's default: unauthenticated, deploy inside the network boundary
+(auth middleware is a later phase; bearer tokens do not fit browsers).
 
 ## Security notes
 
