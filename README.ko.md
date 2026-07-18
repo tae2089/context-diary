@@ -63,6 +63,19 @@ context-diary init --agent claude-code   # 훅 + 설정 + CLAUDE.md 스니펫
 셀프호스트 OSS 배포에 맞는 트레이드오프입니다. `/mcp`에 bearer 토큰을
 요구하려면 `CONTEXT_DIARY_MCP_TOKEN`을 설정하세요.
 
+실행 중인 서버에서 레포를 다시 인덱싱하려면([notes 백필](docs/backfill.ko.md)
+직후 등) 컨테이너에 들어가지 않고 — 미러가 bare 레포라 그 안에서는 `index
+--rescan`이 동작하지 않습니다 — `CONTEXT_DIARY_ADMIN_TOKEN`을 설정하고
+호출하세요:
+
+```sh
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  "https://your-server/admin/rescan?repo=owner/repo"
+```
+
+미러를 다시 동기화해(새로 푸시된 notes까지 당겨) 전체 히스토리를 재순회합니다.
+토큰을 설정하지 않으면 해당 라우트는 등록되지 않습니다.
+
 ## 머지 전략
 
 트레일러는 기본 브랜치까지 살아남아야 합니다. PR 봇은 두 가지 캐리어를

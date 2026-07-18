@@ -73,6 +73,41 @@ type serveDeps struct {
 	prCommits func(ctx context.Context, fullName string, number int) ([]preview.Commit, error)
 }
 
+// rescanDeps makes the admin rescan handler testable without git or DB.
+type rescanDeps struct {
+	// rescan re-syncs the repo's mirror and rewalks its full history into the
+	// index; branch "" means the mirror HEAD.
+	rescan func(ctx context.Context, repo, branch string) (ingest.Result, error)
+}
+
+// rescanHandler serves POST /admin/rescan: force a mirror re-sync + full
+// reindex of one repo. This is the server-side equivalent of `index --rescan`,
+// which cannot run in the serve container because its mirrors are bare repos
+// (no work tree). Re-syncing first pulls any newly pushed notes so a notes
+// backfill is reflected without a merge event.
+//
+// @intent serve POST /admin/rescan?repo=owner/repo[&branch=name]: re-sync the mirror and rewalk full history into the index
+// @domainRule a missing repo query is a 400 with no side effect; a rescan failure surfaces as 500
+func rescanHandler(deps rescanDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo := r.URL.Query().Get("repo")
+		if repo == "" {
+			http.Error(w, "missing ?repo=owner/repo", http.StatusBadRequest)
+			return
+		}
+		res, err := deps.rescan(r.Context(), repo, r.URL.Query().Get("branch"))
+		if err != nil {
+			log.Printf("admin rescan %s: %v", repo, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprintf(w, "indexed %d entries (%d scanned)\n", res.Inserted, res.Scanned)
+		for _, warn := range res.Warnings {
+			fmt.Fprintln(w, warn)
+		}
+	}
+}
+
 // cmdServe runs the GitHub PR bot + MCP endpoint (docs/serve-design.md).
 //
 // @intent implement `context-diary serve`: wire the GitHub webhook bot, MCP endpoint, check pages, and web UI into one HTTP server
@@ -240,6 +275,32 @@ func cmdServe(args []string) int {
 		log.Printf("warning: CONTEXT_DIARY_MCP_TOKEN not set — /mcp is unauthenticated; deploy inside a trusted network only")
 	}
 	mux.Handle("/mcp", mcpHandler)
+	if adminToken := os.Getenv("CONTEXT_DIARY_ADMIN_TOKEN"); adminToken != "" {
+		rescan := func(ctx context.Context, repo, branch string) (ingest.Result, error) {
+			token, err := tokenFn(ctx)
+			if err != nil {
+				return ingest.Result{}, err
+			}
+			// CloneURL is only consulted on a first-time clone; an existing
+			// mirror fetches from its stored remote, so the constructed URL is
+			// harmless for already-mirrored repos.
+			cloneURL := "https://github.com/" + repo + ".git"
+			path, err := mirror.Sync(*cacheDir, repo, cloneURL, token)
+			if err != nil {
+				return ingest.Result{}, err
+			}
+			return ingest.Run(ctx, s, ingest.Options{
+				RepoPath: path,
+				RepoName: repo,
+				Branch:   branch,
+				WalkFull: *walk == "full",
+				Rescan:   true,
+			})
+		}
+		mux.Handle("POST /admin/rescan", bearerAuth(adminToken, rescanHandler(rescanDeps{rescan: rescan})))
+	} else {
+		log.Printf("CONTEXT_DIARY_ADMIN_TOKEN not set — /admin/rescan disabled")
+	}
 	mux.HandleFunc("GET /checks/{id}", checksHandler(checkStore))
 	mux.Handle("GET /ui/", webui.NewHandler(s))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {

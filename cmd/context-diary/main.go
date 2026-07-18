@@ -34,6 +34,7 @@ Environment:
   CONTEXT_DIARY_DB (or DATABASE_URL)   Postgres DSN ('index', 'serve')
   GITHUB_TOKEN                         PR comments + mirror clone ('serve')
   GITHUB_WEBHOOK_SECRET                webhook HMAC verification ('serve')
+  CONTEXT_DIARY_ADMIN_TOKEN            bearer for POST /admin/rescan ('serve'; unset disables it)
 `
 
 func main() {

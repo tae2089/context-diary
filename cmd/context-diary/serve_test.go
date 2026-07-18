@@ -13,6 +13,7 @@ import (
 
 	"github.com/tae2089/context-diary/internal/checks"
 	"github.com/tae2089/context-diary/internal/forge/github"
+	"github.com/tae2089/context-diary/internal/ingest"
 	"github.com/tae2089/context-diary/internal/preview"
 )
 
@@ -337,6 +338,65 @@ func TestBearerAuth(t *testing.T) {
 		if c.want == http.StatusOK && w.Body.String() != "reached" {
 			t.Errorf("%s: next handler not reached", c.name)
 		}
+	}
+}
+
+func TestRescanHandlerMissingRepo(t *testing.T) {
+	called := false
+	h := rescanHandler(rescanDeps{
+		rescan: func(context.Context, string, string) (ingest.Result, error) {
+			called = true
+			return ingest.Result{}, nil
+		},
+	})
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/admin/rescan", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if called {
+		t.Error("rescan called despite missing repo")
+	}
+}
+
+func TestRescanHandlerSuccess(t *testing.T) {
+	var gotRepo, gotBranch string
+	h := rescanHandler(rescanDeps{
+		rescan: func(_ context.Context, repo, branch string) (ingest.Result, error) {
+			gotRepo, gotBranch = repo, branch
+			return ingest.Result{Inserted: 3, Scanned: 5, Warnings: []string{"abc: dropped invalid scope \"Bad\""}}, nil
+		},
+	})
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/admin/rescan?repo=acme/shop&branch=develop", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if gotRepo != "acme/shop" || gotBranch != "develop" {
+		t.Errorf("rescan(%q, %q), want (acme/shop, develop)", gotRepo, gotBranch)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "indexed 3 entries (5 scanned)") {
+		t.Errorf("body = %q, missing summary", body)
+	}
+	if !strings.Contains(body, "dropped invalid scope") {
+		t.Errorf("body = %q, missing warning", body)
+	}
+}
+
+func TestRescanHandlerError(t *testing.T) {
+	h := rescanHandler(rescanDeps{
+		rescan: func(context.Context, string, string) (ingest.Result, error) {
+			return ingest.Result{}, fmt.Errorf("mirror fetch acme/shop: auth failed")
+		},
+	})
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/admin/rescan?repo=acme/shop", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "mirror fetch") {
+		t.Errorf("body = %q, error not surfaced", w.Body.String())
 	}
 }
 
