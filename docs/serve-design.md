@@ -21,6 +21,8 @@ context-diary serve
 │                                explain_function, related_by_ref
 ├─ /ui/                   read-only web UI (server-rendered, no JS):
 │                         search (FTS+trigram) + scope/repo filters
+├─ POST /admin/rescan     re-sync mirror + full reindex of one repo
+│                         (bearer-gated; only when CONTEXT_DIARY_ADMIN_TOKEN set)
 └─ /healthz
 ```
 
@@ -31,6 +33,7 @@ context-diary serve
 | `CONTEXT_DIARY_DB` (or `DATABASE_URL`) | Postgres DSN |
 | `GITHUB_WEBHOOK_SECRET` | HMAC-SHA256 webhook verification |
 | `CONTEXT_DIARY_MCP_TOKEN` | optional bearer token guarding `/mcp` |
+| `CONTEXT_DIARY_ADMIN_TOKEN` | optional bearer token enabling `POST /admin/rescan`; unset → the route is not registered |
 | `CONTEXT_DIARY_BASE_URL` | optional public URL of this server; when set, status Details links open the server's own `/checks/{id}` pages (Atlantis-style) instead of the bot comment |
 | **GitHub auth — one of:** | |
 | `GITHUB_TOKEN` | PAT (comments, statuses, mirror clone) — wins when set |
@@ -130,6 +133,34 @@ html/template embedded in the binary — no JavaScript, no frontend
 toolchain, nothing to build or deploy separately. Same trust posture as
 /mcp's default: unauthenticated, deploy inside the network boundary
 (auth middleware is a later phase; bearer tokens do not fit browsers).
+
+## Admin rescan
+
+`POST /admin/rescan?repo=owner/repo[&branch=name]` re-indexes one repo from
+scratch. It is the server-side equivalent of `context-diary index --rescan`,
+which cannot run in the serve container: mirrors are **bare** repos (no work
+tree), so `index` — which resolves the repo via `git rev-parse --show-toplevel`
+— fails there.
+
+```text
+A1  bearer check (CONTEXT_DIARY_ADMIN_TOKEN); wrong/absent -> 401
+A2  require ?repo=owner/repo; missing -> 400
+A3  mirror.Sync(repo)   — a --mirror fetch pulls EVERY ref, including
+                          refs/notes/context-diary, so a notes backfill pushed
+                          after the last merge lands in the mirror now
+A4  ingest.Run(Rescan=true)  — ignore the cursor, rewalk full history;
+                               upsert-on-change dedups unchanged rows
+A5  200 "indexed N entries (M scanned)" + any dropped-scope warnings
+```
+
+Fetching before rescan is the point: it closes the gap where a notes-only push
+(no merge event → no webhook → stale mirror) would otherwise be invisible to
+the server. Rare operator action, so the request runs synchronously and is not
+serialized against the merge queue — `SaveEntries` is idempotent, so a rescan
+racing a merge ingest of the same repo converges.
+
+Disabled (route not registered) when `CONTEXT_DIARY_ADMIN_TOKEN` is unset, so
+there is no unauthenticated path that mutates the index.
 
 ## Security notes
 

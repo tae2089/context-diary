@@ -79,6 +79,19 @@ Roadmap:
 cache) — the right trade for a self-hosted OSS deployment. Set
 `CONTEXT_DIARY_MCP_TOKEN` to require a bearer token on `/mcp`.
 
+To re-index a repo on the running server (e.g. after a [notes
+backfill](docs/backfill.md)) without shelling into the container — `index
+--rescan` can't run there, since mirrors are bare repos — set
+`CONTEXT_DIARY_ADMIN_TOKEN` and call:
+
+```sh
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  "https://your-server/admin/rescan?repo=owner/repo"
+```
+
+It re-syncs the mirror (pulling freshly pushed notes) and rewalks the full
+history. Unset the token and the route is not registered.
+
 ## Merge strategies
 
 Trailers must survive the path to your default branch. The PR bot validates
