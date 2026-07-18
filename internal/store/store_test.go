@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -10,8 +12,12 @@ import (
 	"github.com/tae2089/context-diary/internal/index"
 )
 
-// openTest connects to TEST_DATABASE_URL or skips. Each test gets a fresh
-// schema by dropping known tables first.
+// openTest connects to TEST_DATABASE_URL or skips. Each test runs in its
+// own throwaway SCHEMA — never touching shared tables, so pointing
+// TEST_DATABASE_URL at a database another process uses cannot destroy that
+// process's data (learned the hard way: the previous DROP TABLE approach
+// wiped a live serve instance's cursor when the test and serve databases
+// turned out to be the same one).
 func openTest(t *testing.T) *Store {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -19,16 +25,34 @@ func openTest(t *testing.T) *Store {
 		t.Skip("TEST_DATABASE_URL not set; skipping Postgres integration test")
 	}
 	ctx := context.Background()
-	s, err := Open(ctx, dsn)
+
+	schema := fmt.Sprintf("ctxtest_%d", time.Now().UnixNano())
+	admin, err := Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(s.Close)
-	for _, tbl := range []string{"commit_details", "commit_scopes", "commits", "repos"} {
-		if _, err := s.pool.Exec(ctx, "DROP TABLE IF EXISTS "+tbl+" CASCADE"); err != nil {
-			t.Fatalf("drop %s: %v", tbl, err)
-		}
+	if _, err := admin.pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		admin.Close()
+		t.Fatalf("create schema: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = admin.pool.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+		admin.Close()
+	})
+
+	// search_path = test schema first, public second (pg_trgm operator
+	// classes live in public).
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	scoped := dsn + sep + "options=" + url.QueryEscape("-csearch_path="+schema+",public")
+	s, err := Open(ctx, scoped)
+	if err != nil {
+		t.Fatalf("Open scoped: %v", err)
+	}
+	t.Cleanup(s.Close)
+
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
