@@ -41,6 +41,22 @@ Bad (these restate the diff or say nothing):
 When you open a pull request in a squash-merge repository, put the same
 trailers in the last paragraph of the PR description — the squash commit
 message is composed from it.
+
+### Reading context (before you change code)
+
+When the context-diary MCP server is connected, consult it before
+modifying code you did not just write:
+
+- ` + "`explain_function`" + ` — the why-timeline of the function you are about to
+  change; check whether your intended approach was already tried and
+  rejected (Context-Decision entries name the rejected alternative).
+- ` + "`search_context`" + ` — decisions in the area (by scope slug or free text)
+  before designing something new there.
+- ` + "`related_by_ref`" + ` — every repo touched by a ticket/incident you are
+  working from.
+
+Without the MCP server, ` + "`context-diary explain <file> <function>`" + ` gives
+the same timeline from the CLI.
 `
 
 // Instructions returns the agent convention snippet.
