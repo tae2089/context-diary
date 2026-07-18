@@ -161,6 +161,29 @@ func TestSaveAndSearch(t *testing.T) {
 		t.Errorf("all search order = %+v", rs)
 	}
 
+	// pagination: limit 1 → newest; offset 1 → next
+	rs, err = s.Search(ctx, "acme/shop", Query{Limit: 1})
+	if err != nil {
+		t.Fatalf("Search limit: %v", err)
+	}
+	if len(rs) != 1 || rs[0].Hash != "bbb222" {
+		t.Errorf("page 1 = %+v", rs)
+	}
+	rs, err = s.Search(ctx, "acme/shop", Query{Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("Search offset: %v", err)
+	}
+	if len(rs) != 1 || rs[0].Hash != "aaa111" {
+		t.Errorf("page 2 (offset 1) = %+v", rs)
+	}
+	rs, err = s.Search(ctx, "acme/shop", Query{Limit: 1, Offset: 5})
+	if err != nil {
+		t.Fatalf("Search offset past end: %v", err)
+	}
+	if len(rs) != 0 {
+		t.Errorf("offset past end should be empty, got %+v", rs)
+	}
+
 	// empty repo → cross-repo search
 	rs, err = s.Search(ctx, "", Query{})
 	if err != nil {

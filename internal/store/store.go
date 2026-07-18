@@ -82,11 +82,12 @@ CREATE INDEX IF NOT EXISTS commit_code_refs_target_idx ON commit_code_refs (ref_
 
 // Query filters Search. Zero values mean "no filter".
 type Query struct {
-	Scope string
-	Text  string // websearch syntax against subject+why+body
-	Since time.Time
-	Until time.Time
-	Limit int // default 50
+	Scope  string
+	Text   string // websearch syntax against subject+why+body
+	Since  time.Time
+	Until  time.Time
+	Limit  int // default 50
+	Offset int // rows to skip (pagination)
 }
 
 // Result is one context entry hydrated with its scopes and details.
@@ -299,6 +300,11 @@ func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result,
 	n++
 	sql += fmt.Sprintf(" ORDER BY c.committed_at DESC LIMIT $%d", n)
 	args = append(args, q.Limit)
+	if q.Offset > 0 {
+		n++
+		sql += fmt.Sprintf(" OFFSET $%d", n)
+		args = append(args, q.Offset)
+	}
 
 	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
