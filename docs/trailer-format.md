@@ -77,14 +77,16 @@ forms (additive — older readers treat them all as opaque text):
 | --- | --- | --- |
 | URL | `https://wiki.example.com/postmortem-42` | text-searchable join key |
 | Issue ID | `JIRA-123` | text-searchable join key |
-| Code ref | `owner/repo//path/to/file.go#Symbol` | parsed structurally: enables reverse lookup ("which entries anywhere reference this function") |
+| Code ref | `owner/repo:path/to/file.go#Symbol` | parsed structurally: enables reverse lookup ("which entries anywhere reference this function") |
 
-Code ref grammar: repository full name, a literal `//`, the file path, and
+Code ref grammar: repository full name, a literal `:`, the file path, and
 an optional `#Symbol` (function/method name). GitHub blob URLs also parse
 as code refs (repo + path only — `#L10` line fragments rot with edits and
-are ignored). Use refs as the cross-repository join: entries in different
-repositories sharing a ticket URL, or pointing at each other's functions,
-become one traceable piece of work.
+are ignored). The previous `owner/repo//path/to/file.go#Symbol` form remains
+readable for existing commit history, but new refs should use the colon form.
+Use refs as the cross-repository join: entries in different repositories
+sharing a ticket URL, or pointing at each other's functions, become one
+traceable piece of work.
 
 ## Scopes across repositories
 
