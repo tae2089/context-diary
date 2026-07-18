@@ -31,12 +31,14 @@ var (
 	contextKeyRe  = regexp.MustCompile(`(?i)^context-[a-z0-9-]*:`)
 )
 
-// Parse returns the trailers of msg's trailer block: the last paragraph, when
-// the message has more than one paragraph and every line in it is a trailer
-// line or a continuation line. A single-paragraph message has no trailer
-// block (its only paragraph is the subject).
+// Parse returns the trailers of msg's trailer block: the run of consecutive
+// trailer-shaped paragraphs at the END of the message (more lenient than
+// git, which takes only the last paragraph — GitHub's squash merge appends
+// "Co-authored-by" as its own paragraph and would otherwise push the
+// Context trailers into the body). A single-paragraph message has no
+// trailer block (its only paragraph is the subject).
 func Parse(msg string) []Trailer {
-	block := lastParagraph(msg)
+	block := trailingTrailerBlock(msg)
 	if block == nil {
 		return nil
 	}
@@ -59,9 +61,10 @@ func Parse(msg string) []Trailer {
 	return ts
 }
 
-// lastParagraph returns the lines of the last paragraph, or nil when the
-// message has fewer than two paragraphs.
-func lastParagraph(msg string) []string {
+// trailingTrailerBlock returns the lines (blank separators removed) of the
+// consecutive all-trailer paragraphs at the end of the message, or nil when
+// the message has no such block or consists of a single paragraph.
+func trailingTrailerBlock(msg string) []string {
 	lines := strings.Split(strings.TrimRight(msg, "\n"), "\n")
 	last := len(lines)
 	for last > 0 && strings.TrimSpace(lines[last-1]) == "" {
@@ -70,14 +73,54 @@ func lastParagraph(msg string) []string {
 	if last == 0 {
 		return nil
 	}
-	start := last
-	for start > 0 && strings.TrimSpace(lines[start-1]) != "" {
-		start--
+
+	blockStart := last
+	for {
+		// paragraph boundaries
+		end := blockStart
+		for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+			end--
+		}
+		start := end
+		for start > 0 && strings.TrimSpace(lines[start-1]) != "" {
+			start--
+		}
+		if end == 0 || start == end {
+			break
+		}
+		if start == 0 {
+			break // reached the first paragraph: that is the subject, never a trailer block
+		}
+		if !allTrailerShaped(lines[start:end]) {
+			break
+		}
+		blockStart = start
 	}
-	if start == 0 {
-		return nil // single paragraph: subject, not a trailer block
+	if blockStart >= last {
+		return nil
 	}
-	return lines[start:last]
+	var block []string
+	for _, l := range lines[blockStart:last] {
+		if strings.TrimSpace(l) != "" {
+			block = append(block, l)
+		}
+	}
+	return block
+}
+
+func allTrailerShaped(par []string) bool {
+	for i, line := range par {
+		if isContinuation(line) {
+			if i == 0 {
+				return false
+			}
+			continue
+		}
+		if !trailerLineRe.MatchString(line) {
+			return false
+		}
+	}
+	return true
 }
 
 func isContinuation(line string) bool {
@@ -189,14 +232,24 @@ func Lint(msg string) []Violation {
 	return vs
 }
 
-// bodyLines returns every line outside the trailer block.
+// bodyLines returns every line outside the trailing trailer block.
 func bodyLines(msg string) []string {
 	lines := strings.Split(strings.TrimRight(msg, "\n"), "\n")
-	block := lastParagraph(msg)
+	block := trailingTrailerBlock(msg)
 	if block == nil {
 		return lines
 	}
-	return lines[:len(lines)-len(block)]
+	// The block's lines are the last len(block) non-blank lines; cut the
+	// message at the first line of the block.
+	remaining := len(block)
+	cut := len(lines)
+	for i := len(lines) - 1; i >= 0 && remaining > 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			remaining--
+			cut = i
+		}
+	}
+	return lines[:cut]
 }
 
 func strconvQuote(s string) string {

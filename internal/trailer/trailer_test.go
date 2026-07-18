@@ -57,6 +57,29 @@ func TestParseKeepsUnknownAndForeignKeys(t *testing.T) {
 	}
 }
 
+func TestParseMergesTrailingTrailerParagraphs(t *testing.T) {
+	// GitHub squash appends Co-authored-by as its own paragraph; the
+	// Context trailers above it must still parse (reader leniency).
+	msg := "docs: add CI badge to README (#1)\n\nContext-Why: badge signals build health\nContext-Scope: docs/readme\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\n"
+	got := Parse(msg)
+	if len(got) != 3 {
+		t.Fatalf("Parse() = %d trailers, want 3 (merged trailing blocks): %#v", len(got), got)
+	}
+	if got[0].Key != "Context-Why" || got[2].Key != "Co-authored-by" {
+		t.Errorf("keys = %#v", got)
+	}
+	if !HasContextWhy(msg) {
+		t.Error("HasContextWhy must see through the appended co-author paragraph")
+	}
+
+	// a prose paragraph between trailer paragraphs terminates the block
+	prose := "subject\n\nContext-Why: misplaced\n\nactual prose here\n\nSigned-off-by: A <a@b.c>\n"
+	got = Parse(prose)
+	if len(got) != 1 || got[0].Key != "Signed-off-by" {
+		t.Errorf("prose must terminate the trailing block: %#v", got)
+	}
+}
+
 func TestParseFoldsContinuationLines(t *testing.T) {
 	msg := "fix: x\n\nContext-Why: first part\n  second part\n"
 	got := Parse(msg)
@@ -145,7 +168,8 @@ func TestLint(t *testing.T) {
 		{"empty why", "fix: x\n\nContext-Why:\nContext-Scope: auth\n", []string{CodeMissingWhy}},
 		{"bad scope", "fix: x\n\nContext-Why: y\nContext-Scope: Bad Scope\n", []string{CodeBadScope}},
 		{"multiline value", "fix: x\n\nContext-Why: a\n  continued\n", []string{CodeMultiline}},
-		{"misplaced trailer in body", "fix: x\n\nContext-Why: placed in body\n\nSigned-off-by: A <a@b.c>\n", []string{CodeMisplaced, CodeMissingWhy}},
+		{"squashed with co-author paragraph is clean", "fix: x\n\nContext-Why: y\n\nCo-authored-by: A <a@b.c>\n", nil},
+		{"misplaced trailer in body", "fix: x\n\nContext-Why: placed in body\n\nprose paragraph\n\nSigned-off-by: A <a@b.c>\n", []string{CodeMisplaced, CodeMissingWhy}},
 		{"no trailers at all", "fix: x\n\nplain body\n", []string{CodeMissingWhy}},
 	}
 	for _, c := range cases {

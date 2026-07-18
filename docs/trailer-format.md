@@ -132,9 +132,13 @@ Context-Ref: https://github.com/example/shop/issues/123
 - Reference semantics: `git interpret-trailers --parse`. The reader MUST
   accept anything git parses as a trailer and apply the registry rules above.
 - go-git does not ship a trailer parser; the indexer implements this grammar
-  over the raw commit message. The trailer block is the last paragraph in
-  which all lines match `key: value` (git also tolerates a small fraction of
-  non-trailer lines; readers MAY be stricter and require all-trailer blocks).
+  over the raw commit message. Readers treat the run of CONSECUTIVE
+  all-trailer paragraphs at the end of the message as one trailer block —
+  more lenient than git's last-paragraph rule, deliberately: GitHub's
+  squash merge appends `Co-authored-by` as its own final paragraph, which
+  would otherwise push the Context trailers written in the PR description
+  into the body and silently unindex them (observed in production on the
+  first squash-merged PR).
 - Line-level code↔commit mapping (`git log -L` equivalent) is out of scope
   for this format; it is an indexer concern.
 
