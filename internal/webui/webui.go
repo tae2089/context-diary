@@ -12,7 +12,9 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +55,9 @@ type handler struct {
 	store Store
 }
 
+// pageSize is the number of entries shown per page.
+const pageSize = 20
+
 type pageData struct {
 	Title   string
 	Query   string
@@ -62,6 +67,14 @@ type pageData struct {
 	Scopes  []store.ScopeCount
 	Entries []store.Result
 	Err     string
+
+	Page    int
+	HasPrev bool
+	HasNext bool
+	// Pre-built page URLs (template.URL so html/template does not re-escape
+	// the already-encoded query string).
+	PrevURL template.URL
+	NextURL template.URL
 }
 
 // NewHandler mounts the UI under /ui/.
@@ -81,7 +94,7 @@ func (h *handler) render(w http.ResponseWriter, data pageData) {
 }
 
 func (h *handler) home(w http.ResponseWriter, r *http.Request) {
-	h.results(w, r, pageData{Title: "context-diary"})
+	h.results(w, r, pageData{Title: "context-diary", Page: pageOf(r)})
 }
 
 func (h *handler) search(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +104,7 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request) {
 		Query: strings.TrimSpace(q.Get("q")),
 		Scope: strings.TrimSpace(q.Get("scope")),
 		Repo:  strings.TrimSpace(q.Get("repo")),
+		Page:  pageOf(r),
 	})
 }
 
@@ -103,14 +117,50 @@ func (h *handler) results(w http.ResponseWriter, r *http.Request, data pageData)
 	if data.Repos, err = h.store.ListRepos(ctx); err != nil {
 		data.Err = err.Error()
 	}
+	// Fetch one extra row to detect a next page without a COUNT query.
 	entries, err := h.store.Search(ctx, data.Repo, store.Query{
-		Text:  data.Query,
-		Scope: data.Scope,
-		Limit: 50,
+		Text:   data.Query,
+		Scope:  data.Scope,
+		Limit:  pageSize + 1,
+		Offset: (data.Page - 1) * pageSize,
 	})
 	if err != nil {
 		data.Err = err.Error()
 	}
+	data.HasNext = len(entries) > pageSize
+	if data.HasNext {
+		entries = entries[:pageSize]
+	}
 	data.Entries = entries
+	data.HasPrev = data.Page > 1
+	data.PrevURL = pageURL(data.Query, data.Scope, data.Repo, data.Page-1)
+	data.NextURL = pageURL(data.Query, data.Scope, data.Repo, data.Page+1)
 	h.render(w, data)
+}
+
+// pageOf parses the 1-based page number, clamping to at least 1.
+func pageOf(r *http.Request) int {
+	p, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil || p < 1 {
+		return 1
+	}
+	return p
+}
+
+// pageURL builds a /ui/search link preserving the filters at the given page.
+// Returned as template.URL so html/template does not re-escape the encoded
+// query string.
+func pageURL(query, scope, repo string, page int) template.URL {
+	v := url.Values{}
+	if query != "" {
+		v.Set("q", query)
+	}
+	if scope != "" {
+		v.Set("scope", scope)
+	}
+	if repo != "" {
+		v.Set("repo", repo)
+	}
+	v.Set("page", strconv.Itoa(page))
+	return template.URL("/ui/search?" + v.Encode())
 }

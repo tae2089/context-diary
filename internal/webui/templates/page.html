@@ -26,6 +26,10 @@ button{cursor:pointer;color:var(--accent)}
 .entry .refs a{color:var(--accent);font-size:.8rem;word-break:break-all}
 .err{color:#cf222e;background:var(--card);padding:.75rem;border-radius:6px}
 .empty{color:var(--muted);padding:2rem 0;text-align:center}
+.pager{display:flex;align-items:center;gap:1rem;justify-content:center;margin:1.5rem 0}
+.pager a{color:var(--accent);text-decoration:none;padding:.4rem .8rem;background:var(--card);border-radius:6px}
+.pager span.disabled{color:var(--muted);padding:.4rem .8rem}
+.pager .page{color:var(--muted);font-size:.85rem}
 footer{margin-top:2.5rem;color:var(--muted);font-size:.75rem}
 </style>
 </head>
@@ -63,7 +67,15 @@ footer{margin-top:2.5rem;color:var(--muted);font-size:.75rem}
   </div>
   {{end}}
 {{else}}
-  <p class="empty">no entries{{if .Query}} for “{{.Query}}”{{end}} — index a repo with <code>context-diary index</code> or merge a PR.</p>
+  <p class="empty">no entries{{if .Query}} for “{{.Query}}”{{end}}{{if gt .Page 1}} on page {{.Page}}{{end}} — index a repo with <code>context-diary index</code> or merge a PR.</p>
+{{end}}
+
+{{if or .HasPrev .HasNext}}
+<nav class="pager">
+  {{if .HasPrev}}<a href="{{.PrevURL}}">← prev</a>{{else}}<span class="disabled">← prev</span>{{end}}
+  <span class="page">page {{.Page}}</span>
+  {{if .HasNext}}<a href="{{.NextURL}}">next →</a>{{else}}<span class="disabled">next →</span>{{end}}
+</nav>
 {{end}}
 
 <footer>read-only view over the context index · git is the source of truth</footer>
