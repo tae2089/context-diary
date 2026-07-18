@@ -28,6 +28,9 @@ func run(dir string, args ...string) (string, error) {
 }
 
 // StagedDiff returns the staged changes: full --stat plus a size-capped patch.
+//
+// @intent give the hook the staged changes as context, bounded so a huge diff cannot blow the budget
+// @sideEffect runs git diff --cached
 func StagedDiff(dir string) (string, error) {
 	stat, err := run(dir, "diff", "--cached", "--stat")
 	if err != nil {
@@ -48,6 +51,9 @@ func StagedDiff(dir string) (string, error) {
 
 // CommentChar resolves core.commentChar. Default "#"; the rare "auto" setting
 // is resolved by git after our hook runs, so we fall back to "#" (design R3).
+//
+// @intent resolve the git comment character so injected template lines match the editor
+// @domainRule the rare core.commentChar=auto is resolved by git after this hook runs, so it falls back to "#" (design R3)
 func CommentChar(dir string) string {
 	out, err := run(dir, "config", "core.commentChar")
 	c := strings.TrimSpace(out)
@@ -69,6 +75,9 @@ func Branch(dir string) string {
 // HooksDir returns the directory git will read hooks from, resolving
 // core.hooksPath when set (design N1). The second result reports whether a
 // custom hooksPath (hook manager territory) is in effect.
+//
+// @intent locate where git reads hooks, distinguishing a custom core.hooksPath (hook-manager territory) from the default
+// @domainRule a custom hooksPath is reported so init refuses to write there and prints manual instructions instead
 func HooksDir(dir string) (path string, custom bool, err error) {
 	if out, err := run(dir, "config", "core.hooksPath"); err == nil && strings.TrimSpace(out) != "" {
 		p := strings.TrimSpace(out)

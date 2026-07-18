@@ -21,6 +21,9 @@ var (
 
 // ParseCodeRef classifies a Context-Ref value; nil when it is a plain URL
 // or issue ID rather than a code reference.
+//
+// @intent parse a Context-Ref into a structured code reference, or nil for a plain URL or issue id
+// @domainRule canonical form is owner/repo//path#Symbol (symbol optional); GitHub blob URLs parse to repo+path only, and #L line fragments are ignored because they rot with edits
 func ParseCodeRef(ref string) *CodeRef {
 	if m := compactRe.FindStringSubmatch(ref); m != nil {
 		return &CodeRef{Repo: m[1], Path: m[2], Symbol: m[3]}

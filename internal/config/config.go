@@ -49,6 +49,9 @@ type fileConfig struct {
 // Load resolves configuration from the repo file, the user file, env, and
 // defaults. Missing files are fine; unreadable or invalid content is an error
 // (the hook caller downgrades errors to warnings per the never-block rule).
+//
+// @intent resolve the effective configuration from env, repo file, user file, and defaults
+// @domainRule precedence is env > repo file > user file > builtin defaults; secrets never come from config files
 func Load(repoFile, userFile string, getenv func(string) string) (Config, error) {
 	var cfg Config
 	cfg.Hook.Mode = ModeComment

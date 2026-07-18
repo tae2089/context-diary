@@ -105,6 +105,9 @@ func writeScript(path, hookName string) error {
 }
 
 // ScaffoldConfig writes .context-diary.toml into dir when absent (design N8).
+//
+// @intent write a starter .context-diary.toml when none exists, without overwriting an edited one
+// @sideEffect creates the config file when absent
 func ScaffoldConfig(dir string) (created bool, err error) {
 	path := filepath.Join(dir, ".context-diary.toml")
 	if _, err := os.Stat(path); err == nil {

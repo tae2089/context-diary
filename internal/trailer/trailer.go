@@ -149,6 +149,8 @@ func isContinuation(line string) bool {
 
 // HasContextWhy reports whether msg's trailer block carries a non-empty
 // Context-Why value. Keys match case-insensitively.
+//
+// @intent report whether a message carries a non-empty Context-Why (case-insensitive), the gate for indexing
 func HasContextWhy(msg string) bool {
 	for _, t := range Parse(msg) {
 		if strings.EqualFold(t.Key, KeyWhy) && t.Value != "" {
@@ -160,12 +162,16 @@ func HasContextWhy(msg string) bool {
 
 // ValidScope reports whether s satisfies the scope slug grammar:
 // lowercase/digit/hyphen segments separated by "/".
+//
+// @intent validate a scope slug against the grammar (lowercase/digit/hyphen segments joined by "/")
 func ValidScope(s string) bool {
 	return scopeRe.MatchString(s)
 }
 
 // StripComments removes lines starting with commentChar, so hook-injected
 // draft comments are not mistaken for accepted content.
+//
+// @intent drop comment lines so an injected draft template is not mistaken for accepted content when linting an editor buffer
 func StripComments(msg, commentChar string) string {
 	var out []string
 	for _, line := range strings.Split(msg, "\n") {

@@ -76,6 +76,9 @@ func ValidSignature(secret, body []byte, sigHeader string) bool {
 }
 
 // ParsePREvent extracts a PREvent from a verified payload.
+//
+// @intent extract the pull_request fields serve needs from a verified webhook payload
+// @requires the payload signature was already verified (parse only after ValidSignature)
 func ParsePREvent(payload []byte) (*PREvent, error) {
 	var raw struct {
 		Action      string `json:"action"`

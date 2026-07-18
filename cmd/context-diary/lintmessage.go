@@ -13,6 +13,8 @@ import (
 // body: GitHub's "PR title & description" squash setting composes the final
 // commit message as title + blank line + body, so a trailers-only body is
 // valid input here.
+//
+// @intent implement `context-diary lint-message`: validate a PR description or message body (stdin or file) for CI on servers without serve
 func cmdLintMessage(args []string) int {
 	src := "-"
 	if len(args) > 0 {
