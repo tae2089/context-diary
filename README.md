@@ -41,9 +41,9 @@ Git is the source of truth. The server is a read-only index.
 
 ## Status
 
-Early. The [trailer format spec](docs/trailer-format.md) and the
-`context-diary` CLI (hooks, lint, agent setup) are usable; the indexer and
-MCP server are not built yet.
+The [trailer format spec](docs/trailer-format.md), the `context-diary` CLI
+(hooks, lint, agent setup, backfill, explain), the indexer, and the server
+(PR bot + MCP + web UI) all work end to end.
 
 ```sh
 go install github.com/tae2089/context-diary/cmd/context-diary@latest
@@ -55,7 +55,13 @@ Or run the server from the Docker image (needs git-capable runtime — included)
 
 ```sh
 docker build -t context-diary .
-docker run -p 8080:8080   -e CONTEXT_DIARY_DB=postgres://...   -e GITHUB_WEBHOOK_SECRET=...   -e GITHUB_APP_ID=... -e GITHUB_APP_INSTALLATION_ID=...   -v ctxdiary-keys:/keys -e GITHUB_APP_PRIVATE_KEY_FILE=/keys/app.pem   -v ctxdiary-mirrors:/var/cache/context-diary   context-diary   # default command: serve
+docker run -p 8080:8080 \
+  -e CONTEXT_DIARY_DB=postgres://... \
+  -e GITHUB_WEBHOOK_SECRET=... \
+  -e GITHUB_APP_ID=... -e GITHUB_APP_INSTALLATION_ID=... \
+  -v ctxdiary-keys:/keys -e GITHUB_APP_PRIVATE_KEY_FILE=/keys/app.pem \
+  -v ctxdiary-mirrors:/var/cache/context-diary \
+  context-diary   # default command: serve
 ```
 
 Roadmap:
