@@ -1,5 +1,7 @@
 # CLI & Commit Hook Design v0.2
 
+**English** (authoritative) | [한국어 요약](design-overview.ko.md)
+
 Status: Draft (v0.2 — trailer generation delegated to AI coding agents)
 Depends on: [Context Trailer Format v0.1](trailer-format.md)
 

@@ -1,5 +1,7 @@
 # Serve Design v0.2 — GitHub PR Bot + MCP Endpoint
 
+**English** (authoritative) | [한국어 요약](design-overview.ko.md)
+
 Status: Draft (v0.2: async ingest queue + commit statuses)
 Depends on: [Indexer Design v0.1](indexer-design.md), [Trailer Format v0.1](trailer-format.md)
 

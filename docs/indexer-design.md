@@ -1,5 +1,7 @@
 # Indexer Design v0.1
 
+**English** (authoritative) | [한국어 요약](design-overview.ko.md)
+
 Status: Draft
 Depends on: [Context Trailer Format v0.1](trailer-format.md)
 

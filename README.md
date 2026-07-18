@@ -1,5 +1,7 @@
 # context-diary
 
+**English** | [한국어](README.ko.md)
+
 [![CI](https://github.com/tae2089/context-diary/actions/workflows/ci.yml/badge.svg)](https://github.com/tae2089/context-diary/actions/workflows/ci.yml)
 
 Capture the **why** behind every code change — and let anyone in your team ask
