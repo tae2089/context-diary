@@ -1,0 +1,5 @@
+Context-Why: The code-reference grammar had changed, and contributors needed the user-facing trailer documentation and repository agent instructions to match the enforced form and analysis workflow.
+Context-Scope: spec/trailer-format
+Context-Scope: ccg
+Context-Decision: document the colon form as canonical while preserving legacy double-slash read compatibility, and require CCG search when locating code entry points.
+Context-Ref: docs/trailer-format.md
