@@ -19,22 +19,6 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-// Open connects and pings.
-func Open(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("connect postgres: %w", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-	return &Store{pool: pool}, nil
-}
-
-// Close releases the pool.
-func (s *Store) Close() { s.pool.Close() }
-
 const ddl = `
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
@@ -93,6 +77,50 @@ CREATE TABLE IF NOT EXISTS commit_code_refs (
 );
 CREATE INDEX IF NOT EXISTS commit_code_refs_target_idx ON commit_code_refs (ref_repo, ref_path);
 `
+
+// Query filters Search. Zero values mean "no filter".
+type Query struct {
+	Scope string
+	Text  string // websearch syntax against subject+why+body
+	Since time.Time
+	Until time.Time
+	Limit int // default 50
+}
+
+// Result is one context entry hydrated with its scopes and details.
+type Result struct {
+	Repo        string
+	Hash        string
+	Subject     string
+	Why         string
+	AuthorName  string
+	CommittedAt time.Time
+	Scopes      []string
+	Decisions   []string
+	Refs        []string
+}
+
+// ScopeCount is one scope with its entry count.
+type ScopeCount struct {
+	Scope string
+	Count int
+}
+
+// Open connects and pings.
+func Open(ctx context.Context, dsn string) (*Store, error) {
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("connect postgres: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return &Store{pool: pool}, nil
+}
+
+// Close releases the pool.
+func (s *Store) Close() { s.pool.Close() }
 
 // Migrate applies the idempotent DDL.
 func (s *Store) Migrate(ctx context.Context) error {
@@ -213,28 +241,6 @@ func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.
 
 // sanitize makes arbitrary commit bytes valid UTF-8 for Postgres TEXT (R2).
 func sanitize(s string) string { return strings.ToValidUTF8(s, "�") }
-
-// Query filters Search. Zero values mean "no filter".
-type Query struct {
-	Scope string
-	Text  string // websearch syntax against subject+why+body
-	Since time.Time
-	Until time.Time
-	Limit int // default 50
-}
-
-// Result is one context entry hydrated with its scopes and details.
-type Result struct {
-	Repo        string
-	Hash        string
-	Subject     string
-	Why         string
-	AuthorName  string
-	CommittedAt time.Time
-	Scopes      []string
-	Decisions   []string
-	Refs        []string
-}
 
 // Search returns matching entries, newest first (design §Query surface).
 // Empty repoName searches across all indexed repositories.
@@ -374,12 +380,6 @@ func (s *Store) ListRepos(ctx context.Context) ([]string, error) {
 		out = append(out, name)
 	}
 	return out, rows.Err()
-}
-
-// ScopeCount is one scope with its entry count.
-type ScopeCount struct {
-	Scope string
-	Count int
 }
 
 // ListScopes returns distinct scopes (optionally per repo) with counts.

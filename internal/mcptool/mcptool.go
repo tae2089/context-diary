@@ -63,8 +63,39 @@ type scopesArgs struct {
 	Repo string `json:"repo,omitempty" jsonschema:"repository name; omit for every indexed repository"`
 }
 
+type scopesResult struct {
+	Scopes []store.ScopeCount `json:"scopes"`
+}
+
 type refArgs struct {
 	Ref string `json:"ref" jsonschema:"text contained in Context-Ref values, e.g. a Jira key (PAY-77), a doc URL, or a code ref"`
+}
+
+type explainArgs struct {
+	Repo     string `json:"repo" jsonschema:"repository name as indexed, e.g. owner/repo"`
+	File     string `json:"file" jsonschema:"path of the file within the repository"`
+	Function string `json:"function" jsonschema:"function or method name (git funcname matching)"`
+	Branch   string `json:"branch,omitempty" jsonschema:"branch to trace; default HEAD"`
+}
+
+type explainPoint struct {
+	Hash        string   `json:"hash"`
+	Subject     string   `json:"subject"`
+	CommittedAt string   `json:"committed_at"`
+	HasContext  bool     `json:"has_context"`
+	Why         string   `json:"why,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
+	Decisions   []string `json:"decisions,omitempty"`
+}
+
+type explainResult struct {
+	File     string         `json:"file"`
+	Function string         `json:"function"`
+	Order    string         `json:"order"` // always "oldest_first"
+	Timeline []explainPoint `json:"timeline"`
+	// ReferencedBy: entries in other repositories whose Context-Ref code
+	// refs point at this function ("this decision concerns you").
+	ReferencedBy []searchEntry `json:"referenced_by,omitempty"`
 }
 
 // toSearchResult converts store rows to the wire shape.
@@ -84,10 +115,6 @@ func toSearchResult(rs []store.Result) searchResult {
 		})
 	}
 	return out
-}
-
-type scopesResult struct {
-	Scopes []store.ScopeCount `json:"scopes"`
 }
 
 // NewServer builds the MCP server with the query tools registered.
@@ -205,33 +232,6 @@ func NewServer(deps Deps) *mcp.Server {
 	}
 
 	return srv
-}
-
-type explainArgs struct {
-	Repo     string `json:"repo" jsonschema:"repository name as indexed, e.g. owner/repo"`
-	File     string `json:"file" jsonschema:"path of the file within the repository"`
-	Function string `json:"function" jsonschema:"function or method name (git funcname matching)"`
-	Branch   string `json:"branch,omitempty" jsonschema:"branch to trace; default HEAD"`
-}
-
-type explainPoint struct {
-	Hash        string   `json:"hash"`
-	Subject     string   `json:"subject"`
-	CommittedAt string   `json:"committed_at"`
-	HasContext  bool     `json:"has_context"`
-	Why         string   `json:"why,omitempty"`
-	Scopes      []string `json:"scopes,omitempty"`
-	Decisions   []string `json:"decisions,omitempty"`
-}
-
-type explainResult struct {
-	File     string         `json:"file"`
-	Function string         `json:"function"`
-	Order    string         `json:"order"` // always "oldest_first"
-	Timeline []explainPoint `json:"timeline"`
-	// ReferencedBy: entries in other repositories whose Context-Ref code
-	// refs point at this function ("this decision concerns you").
-	ReferencedBy []searchEntry `json:"referenced_by,omitempty"`
 }
 
 func parseTime(s string) (time.Time, error) {

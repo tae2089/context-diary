@@ -30,6 +30,24 @@ type Result struct {
 	Instruction string // set when Status == StatusManual
 }
 
+const configScaffold = `# context-diary configuration — committed; never put secrets here.
+# Docs: https://github.com/tae2089/context-diary/blob/main/docs/cli-design.md
+
+# Shared scope list (top-level keys must precede tables).
+# scopes = ["order/cancel", "payment/refund"]
+
+[hook]
+# comment: trailer template inserted as comments in the commit editor (default)
+# off:     disable the prepare-commit-msg hook
+mode = "comment"
+
+[lint]
+# warn: commit-msg hook only warns; strict: violations block the commit.
+# strict is recommended when commits are authored by AI coding agents:
+# the violation output is the feedback they use to fix and retry.
+level = "warn"
+`
+
 func script(hookName string) string {
 	return fmt.Sprintf(`#!/bin/sh
 # %s — do not edit; re-run 'context-diary init' to update
@@ -79,24 +97,6 @@ func writeScript(path, hookName string) error {
 	}
 	return nil
 }
-
-const configScaffold = `# context-diary configuration — committed; never put secrets here.
-# Docs: https://github.com/tae2089/context-diary/blob/main/docs/cli-design.md
-
-# Shared scope list (top-level keys must precede tables).
-# scopes = ["order/cancel", "payment/refund"]
-
-[hook]
-# comment: trailer template inserted as comments in the commit editor (default)
-# off:     disable the prepare-commit-msg hook
-mode = "comment"
-
-[lint]
-# warn: commit-msg hook only warns; strict: violations block the commit.
-# strict is recommended when commits are authored by AI coding agents:
-# the violation output is the feedback they use to fix and retry.
-level = "warn"
-`
 
 // ScaffoldConfig writes .context-diary.toml into dir when absent (design N8).
 func ScaffoldConfig(dir string) (created bool, err error) {

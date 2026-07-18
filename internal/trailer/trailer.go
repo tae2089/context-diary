@@ -31,6 +31,20 @@ var (
 	contextKeyRe  = regexp.MustCompile(`(?i)^context-[a-z0-9-]*:`)
 )
 
+// Violation codes reported by Lint.
+const (
+	CodeMissingWhy = "missing-why"
+	CodeBadScope   = "bad-scope"
+	CodeMultiline  = "multiline-value"
+	CodeMisplaced  = "misplaced-trailer"
+)
+
+// Violation is one lint finding.
+type Violation struct {
+	Code string
+	Msg  string
+}
+
 // Parse returns the trailers of msg's trailer block: the run of consecutive
 // trailer-shaped paragraphs at the END of the message (more lenient than
 // git, which takes only the last paragraph — GitHub's squash merge appends
@@ -182,20 +196,6 @@ func CommentLines(lines []string, commentChar string) []string {
 		out[i] = commentChar + " " + l
 	}
 	return out
-}
-
-// Violation codes reported by Lint.
-const (
-	CodeMissingWhy = "missing-why"
-	CodeBadScope   = "bad-scope"
-	CodeMultiline  = "multiline-value"
-	CodeMisplaced  = "misplaced-trailer"
-)
-
-// Violation is one lint finding.
-type Violation struct {
-	Code string
-	Msg  string
 }
 
 // Lint checks msg against the format's writer rules (design doc L4-L5):

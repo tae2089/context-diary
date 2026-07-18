@@ -17,6 +17,42 @@ import (
 	"strings"
 )
 
+// Status states accepted by the GitHub statuses API.
+const (
+	StatusPending = "pending"
+	StatusSuccess = "success"
+	StatusFailure = "failure"
+	StatusError   = "error"
+)
+
+// PREvent is the subset of a pull_request webhook payload serve needs.
+type PREvent struct {
+	Action         string
+	Number         int
+	Body           string
+	Merged         bool
+	HeadSHA        string // PR head — lint status target
+	MergeCommitSHA string // set once merged — ingest status target
+	FullName       string // "owner/repo"
+	CloneURL       string
+	DefaultBranch  string
+}
+
+// Client talks to the GitHub REST API. The bearer token is resolved per
+// request: static for a PAT, rotating for a GitHub App installation.
+type Client struct {
+	base    string
+	tokenFn func(context.Context) (string, error)
+	http    *http.Client
+}
+
+// PRCommit is one commit of a pull request branch.
+type PRCommit struct {
+	SHA     string
+	Message string
+	Merge   bool // more than one parent
+}
+
 // ValidSignature checks the X-Hub-Signature-256 header (constant-time).
 func ValidSignature(secret, body []byte, sigHeader string) bool {
 	want, ok := strings.CutPrefix(sigHeader, "sha256=")
@@ -30,19 +66,6 @@ func ValidSignature(secret, body []byte, sigHeader string) bool {
 	m := hmac.New(sha256.New, secret)
 	m.Write(body)
 	return hmac.Equal(m.Sum(nil), wantRaw)
-}
-
-// PREvent is the subset of a pull_request webhook payload serve needs.
-type PREvent struct {
-	Action         string
-	Number         int
-	Body           string
-	Merged         bool
-	HeadSHA        string // PR head — lint status target
-	MergeCommitSHA string // set once merged — ingest status target
-	FullName       string // "owner/repo"
-	CloneURL       string
-	DefaultBranch  string
 }
 
 // ParsePREvent extracts a PREvent from a verified payload.
@@ -80,14 +103,6 @@ func ParsePREvent(payload []byte) (*PREvent, error) {
 		CloneURL:       raw.PullRequest.Base.Repo.CloneURL,
 		DefaultBranch:  raw.PullRequest.Base.Repo.DefaultBranch,
 	}, nil
-}
-
-// Client talks to the GitHub REST API. The bearer token is resolved per
-// request: static for a PAT, rotating for a GitHub App installation.
-type Client struct {
-	base    string
-	tokenFn func(context.Context) (string, error)
-	http    *http.Client
 }
 
 // NewClient builds a client with a static token (PAT); base "" means
@@ -133,14 +148,6 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	return nil
 }
 
-// Status states accepted by the GitHub statuses API.
-const (
-	StatusPending = "pending"
-	StatusSuccess = "success"
-	StatusFailure = "failure"
-	StatusError   = "error"
-)
-
 // SetStatus posts a commit status (docs/serve-design.md §Statuses).
 // description is truncated to GitHub's 140-char limit; a non-empty
 // targetURL becomes the status "Details" link.
@@ -157,13 +164,6 @@ func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusCont
 		body["target_url"] = targetURL
 	}
 	return c.do(ctx, "POST", fmt.Sprintf("/repos/%s/statuses/%s", fullName, sha), body, nil)
-}
-
-// PRCommit is one commit of a pull request branch.
-type PRCommit struct {
-	SHA     string
-	Message string
-	Merge   bool // more than one parent
 }
 
 // ListPRCommits returns the PR's branch commits (first page, 100 max —

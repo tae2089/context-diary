@@ -39,6 +39,22 @@ const (
 	statusContextIngest = "context-diary/ingest"
 )
 
+var checkPage = template.Must(template.New("check").Parse(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{{.Title}}</title>
+<style>
+body{font-family:ui-monospace,Menlo,monospace;max-width:760px;margin:3rem auto;padding:0 1rem;color:#1f2328}
+.state{display:inline-block;padding:2px 10px;border-radius:12px;color:#fff;font-size:.85rem}
+.success{background:#1a7f37}.failure{background:#cf222e}.error{background:#cf222e}.pending{background:#9a6700}
+pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow-x:auto}
+footer{margin-top:2rem;color:#656d76;font-size:.8rem}
+</style></head><body>
+<h2>{{.Title}}</h2>
+<p><span class="state {{.State}}">{{.State}}</span> · updated {{.UpdatedAt.Format "2006-01-02 15:04:05 MST"}}</p>
+<pre>{{range .Body}}{{.}}
+{{end}}</pre>
+<footer>context-diary — this page is ephemeral (server restart clears it); the durable record is the bot comment and the index.</footer>
+</body></html>`))
+
 // serveDeps makes the webhook handler testable without network or DB.
 type serveDeps struct {
 	secret []byte
@@ -280,22 +296,6 @@ func githubTokenFn() (func(context.Context) (string, error), string, error) {
 func ingestCheckKey(ev *github.PREvent) string {
 	return "ingest:" + ev.FullName + "#" + ev.MergeCommitSHA
 }
-
-var checkPage = template.Must(template.New("check").Parse(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{{.Title}}</title>
-<style>
-body{font-family:ui-monospace,Menlo,monospace;max-width:760px;margin:3rem auto;padding:0 1rem;color:#1f2328}
-.state{display:inline-block;padding:2px 10px;border-radius:12px;color:#fff;font-size:.85rem}
-.success{background:#1a7f37}.failure{background:#cf222e}.error{background:#cf222e}.pending{background:#9a6700}
-pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow-x:auto}
-footer{margin-top:2rem;color:#656d76;font-size:.8rem}
-</style></head><body>
-<h2>{{.Title}}</h2>
-<p><span class="state {{.State}}">{{.State}}</span> · updated {{.UpdatedAt.Format "2006-01-02 15:04:05 MST"}}</p>
-<pre>{{range .Body}}{{.}}
-{{end}}</pre>
-<footer>context-diary — this page is ephemeral (server restart clears it); the durable record is the bot comment and the index.</footer>
-</body></html>`))
 
 func checksHandler(store *checks.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

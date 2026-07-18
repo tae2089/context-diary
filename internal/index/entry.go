@@ -10,6 +10,8 @@ import (
 	"github.com/tae2089/context-diary/internal/trailer"
 )
 
+var noteLineRe = regexp.MustCompile(`^([A-Za-z0-9-]+):[ \t]*(.+)$`)
+
 // Commit is the raw material from the history walk.
 type Commit struct {
 	Hash        string
@@ -105,8 +107,6 @@ func hasWhy(ts []trailer.Trailer) bool {
 	}
 	return false
 }
-
-var noteLineRe = regexp.MustCompile(`^([A-Za-z0-9-]+):[ \t]*(.+)$`)
 
 // noteTrailers parses a backfill note line-wise: a note IS a trailer block
 // by definition, so the message's last-paragraph rule does not apply.

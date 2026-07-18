@@ -51,15 +51,6 @@ type handler struct {
 	store Store
 }
 
-// NewHandler mounts the UI under /ui/.
-func NewHandler(s Store) http.Handler {
-	h := &handler{store: s}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /ui/{$}", h.home)
-	mux.HandleFunc("GET /ui/search", h.search)
-	return mux
-}
-
 type pageData struct {
 	Title   string
 	Query   string
@@ -69,6 +60,15 @@ type pageData struct {
 	Scopes  []store.ScopeCount
 	Entries []store.Result
 	Err     string
+}
+
+// NewHandler mounts the UI under /ui/.
+func NewHandler(s Store) http.Handler {
+	h := &handler{store: s}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ui/{$}", h.home)
+	mux.HandleFunc("GET /ui/search", h.search)
+	return mux
 }
 
 func (h *handler) render(w http.ResponseWriter, data pageData) {

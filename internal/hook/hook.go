@@ -22,6 +22,12 @@ type Deps struct {
 	Stderr      io.Writer
 }
 
+// Result is the outcome of the commit-msg hook.
+type Result struct {
+	Violations []trailer.Violation
+	Blocked    bool
+}
+
 func (d Deps) warnf(format string, args ...any) {
 	if d.Stderr != nil {
 		fmt.Fprintf(d.Stderr, "context-diary: "+format+"\n", args...)
@@ -91,12 +97,6 @@ func insertBlock(msg string, block []string, commentChar string) string {
 		out = append(out, lines[insertAt:]...)
 	}
 	return strings.Join(out, "\n") + "\n"
-}
-
-// Result is the outcome of the commit-msg hook.
-type Result struct {
-	Violations []trailer.Violation
-	Blocked    bool
 }
 
 // CommitMsg implements the commit-msg flow (L1-L8): lint the final message,
