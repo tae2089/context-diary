@@ -124,7 +124,7 @@ func TestClientUsesTokenFunc(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClientWithTokenFunc(srv.URL, func(context.Context) (string, error) { return "dyn-token", nil })
-	if err := c.SetStatus(t.Context(), "acme/shop", "abc", StatusSuccess, "ctx", "d"); err != nil {
+	if err := c.SetStatus(t.Context(), "acme/shop", "abc", StatusSuccess, "ctx", "d", ""); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
 	if gotAuth != "Bearer dyn-token" {

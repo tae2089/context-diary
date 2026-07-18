@@ -49,6 +49,8 @@ W8    IF GitHub call fails -> 502 logged (redelivery is MANUAL on GitHub;
       the next PR event retries naturally)
 W8a CALL set commit status on head SHA: context-diary/context
       success "context trailers present" | failure "missing trailers"
+      target_url = the bot comment's html_url — the status "Details"
+      link opens the explanation (no separate detail page or state)
       -> branch protection can REQUIRE this status, blocking merge harder
          than the comment can
 W8b   IF status call fails -> log only (comment is the primary UX)

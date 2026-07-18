@@ -39,9 +39,10 @@ const (
 
 // serveDeps makes the webhook handler testable without network or DB.
 type serveDeps struct {
-	secret  []byte
-	comment func(ctx context.Context, fullName string, number int, body string) error
-	status  func(ctx context.Context, fullName, sha, state, statusContext, description string) error
+	secret []byte
+	// comment upserts the bot comment and returns its html_url.
+	comment func(ctx context.Context, fullName string, number int, body string) (string, error)
+	status  func(ctx context.Context, fullName, sha, state, statusContext, description, targetURL string) error
 	// enqueue schedules async ingestion for a merged PR; false = queue full.
 	enqueue func(ev *github.PREvent) bool
 }
@@ -133,7 +134,7 @@ func cmdServe(args []string) int {
 				log.Printf("ingested %s: %d entries (%d scanned)", ev.FullName, res.Inserted, res.Scanned)
 			}
 			if ev.MergeCommitSHA != "" {
-				if serr := gh.SetStatus(ctx, ev.FullName, ev.MergeCommitSHA, state, statusContextIngest, desc); serr != nil {
+				if serr := gh.SetStatus(ctx, ev.FullName, ev.MergeCommitSHA, state, statusContextIngest, desc, ""); serr != nil {
 					log.Printf("set ingest status %s: %v", ev.FullName, serr)
 				}
 			}
@@ -144,7 +145,7 @@ func cmdServe(args []string) int {
 
 	deps := serveDeps{
 		secret: []byte(secret),
-		comment: func(ctx context.Context, fullName string, number int, body string) error {
+		comment: func(ctx context.Context, fullName string, number int, body string) (string, error) {
 			return gh.UpsertComment(ctx, fullName, number, preview.Marker, body)
 		},
 		status: gh.SetStatus,
@@ -280,18 +281,20 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 		switch {
 		case ev.Action == "opened" || ev.Action == "edited" ||
 			ev.Action == "reopened" || ev.Action == "synchronize":
-			if err := deps.comment(r.Context(), ev.FullName, ev.Number, preview.Comment(ev.Body)); err != nil {
+			commentURL, err := deps.comment(r.Context(), ev.FullName, ev.Number, preview.Comment(ev.Body))
+			if err != nil {
 				log.Printf("comment on %s#%d: %v", ev.FullName, ev.Number, err)
 				http.Error(w, "comment failed", http.StatusBadGateway)
 				return
 			}
-			// Lint status on the head SHA lets branch protection require it.
+			// Lint status on the head SHA lets branch protection require it;
+			// its Details link opens the bot comment (the explanation lives there).
 			if ev.HeadSHA != "" {
 				state, desc := github.StatusSuccess, "context trailers present"
 				if !bodyClean(ev.Body) {
-					state, desc = github.StatusFailure, "PR description is missing context trailers (see bot comment)"
+					state, desc = github.StatusFailure, "PR description is missing context trailers (see Details)"
 				}
-				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, desc); err != nil {
+				if err := deps.status(r.Context(), ev.FullName, ev.HeadSHA, state, statusContextLint, desc, commentURL); err != nil {
 					log.Printf("set lint status %s#%d: %v", ev.FullName, ev.Number, err)
 				}
 			}
@@ -303,7 +306,7 @@ func webhookHandler(deps serveDeps) http.HandlerFunc {
 			}
 			if ev.MergeCommitSHA != "" {
 				if err := deps.status(r.Context(), ev.FullName, ev.MergeCommitSHA,
-					github.StatusPending, statusContextIngest, "ingest queued"); err != nil {
+					github.StatusPending, statusContextIngest, "ingest queued", ""); err != nil {
 					log.Printf("set pending status %s: %v", ev.FullName, err)
 				}
 			}

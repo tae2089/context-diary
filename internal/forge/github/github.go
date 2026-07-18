@@ -142,38 +142,49 @@ const (
 )
 
 // SetStatus posts a commit status (docs/serve-design.md §Statuses).
-// description is truncated to GitHub's 140-char limit.
-func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusContext, description string) error {
+// description is truncated to GitHub's 140-char limit; a non-empty
+// targetURL becomes the status "Details" link.
+func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusContext, description, targetURL string) error {
 	if len(description) > 140 {
 		description = description[:137] + "..."
 	}
-	return c.do(ctx, "POST", fmt.Sprintf("/repos/%s/statuses/%s", fullName, sha),
-		map[string]string{
-			"state":       state,
-			"context":     statusContext,
-			"description": description,
-		}, nil)
+	body := map[string]string{
+		"state":       state,
+		"context":     statusContext,
+		"description": description,
+	}
+	if targetURL != "" {
+		body["target_url"] = targetURL
+	}
+	return c.do(ctx, "POST", fmt.Sprintf("/repos/%s/statuses/%s", fullName, sha), body, nil)
 }
 
 // UpsertComment maintains exactly one bot comment per PR, identified by
 // marker: update in place when found, create otherwise (design W6-W7).
-func (c *Client) UpsertComment(ctx context.Context, fullName string, number int, marker, body string) error {
+// Returns the comment's html_url — the status "Details" target.
+func (c *Client) UpsertComment(ctx context.Context, fullName string, number int, marker, body string) (string, error) {
 	var comments []struct {
-		ID   int64  `json:"id"`
-		Body string `json:"body"`
+		ID      int64  `json:"id"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
 	}
 	path := fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100", fullName, number)
 	if err := c.do(ctx, "GET", path, nil, &comments); err != nil {
-		return err
+		return "", err
+	}
+	var out struct {
+		HTMLURL string `json:"html_url"`
 	}
 	for _, cm := range comments {
 		if strings.Contains(cm.Body, marker) {
-			return c.do(ctx, "PATCH",
+			err := c.do(ctx, "PATCH",
 				fmt.Sprintf("/repos/%s/issues/comments/%d", fullName, cm.ID),
-				map[string]string{"body": body}, nil)
+				map[string]string{"body": body}, &out)
+			return out.HTMLURL, err
 		}
 	}
-	return c.do(ctx, "POST",
+	err := c.do(ctx, "POST",
 		fmt.Sprintf("/repos/%s/issues/%d/comments", fullName, number),
-		map[string]string{"body": body}, nil)
+		map[string]string{"body": body}, &out)
+	return out.HTMLURL, err
 }

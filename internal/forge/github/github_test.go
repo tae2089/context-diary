@@ -73,10 +73,10 @@ func TestSetStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClient(srv.URL, "tok")
-	if err := c.SetStatus(t.Context(), "acme/shop", "abc123", StatusSuccess, "context-diary/ingest", "indexed 3 entries"); err != nil {
+	if err := c.SetStatus(t.Context(), "acme/shop", "abc123", StatusSuccess, "context-diary/ingest", "indexed 3 entries", "https://example.com/details"); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
-	if got["state"] != "success" || got["context"] != "context-diary/ingest" || got["description"] != "indexed 3 entries" {
+	if got["state"] != "success" || got["context"] != "context-diary/ingest" || got["description"] != "indexed 3 entries" || got["target_url"] != "https://example.com/details" {
 		t.Errorf("status body = %v", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestUpsertCommentCreatesWhenAbsent(t *testing.T) {
 		{"id": 9, "body": "unrelated human comment"},
 	})
 	c := NewClient(srv.URL, "test-token")
-	if err := c.UpsertComment(t.Context(), "acme/shop", 7, "<!-- context-diary -->", "hello"); err != nil {
+	if _, err := c.UpsertComment(t.Context(), "acme/shop", 7, "<!-- context-diary -->", "hello"); err != nil {
 		t.Fatalf("UpsertComment: %v", err)
 	}
 	if len(*ops) != 1 || (*ops)[0] != "create" {
@@ -124,7 +124,7 @@ func TestUpsertCommentUpdatesWhenMarkerFound(t *testing.T) {
 		{"id": 42, "body": "<!-- context-diary -->\nold content"},
 	})
 	c := NewClient(srv.URL, "test-token")
-	if err := c.UpsertComment(t.Context(), "acme/shop", 7, "<!-- context-diary -->", "new content"); err != nil {
+	if _, err := c.UpsertComment(t.Context(), "acme/shop", 7, "<!-- context-diary -->", "new content"); err != nil {
 		t.Fatalf("UpsertComment: %v", err)
 	}
 	if len(*ops) != 1 || (*ops)[0] != "update" {

@@ -73,7 +73,7 @@ enforced, not just documented:
 | Merge strategy | What to do |
 | --- | --- |
 | Rebase merge (recommended) | Nothing — commits land unchanged. |
-| Squash merge (recommended) | Write trailers in the PR description; with the setting above they become the commit message. The [PR lint action](examples/github-actions/pr-context-lint.yml) or the `context-diary/context` required status enforces this before merge. |
+| Squash merge (recommended) | Write trailers in the PR description; with the setting above they become the commit message. Enforce before merge with ONE of: the `context-diary/context` status from a running `serve` (its Details link opens the bot comment), or the [PR lint action](examples/github-actions/pr-context-lint.yml) for teams without a server — running both is redundant. |
 | Merge commits (discouraged) | Trailers never reach the merge commit itself and side-branch commits are off the default first-parent walk. If you must keep them (or for pre-adoption history), index with `context-diary index --walk full`. |
 
 Either way, `context-diary lint` in CI on the default branch is the safety

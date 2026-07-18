@@ -54,12 +54,12 @@ type recorded struct {
 func testHandler(rec *recorded) http.HandlerFunc {
 	return webhookHandler(serveDeps{
 		secret: []byte(testSecret),
-		comment: func(_ context.Context, fullName string, number int, body string) error {
+		comment: func(_ context.Context, fullName string, number int, body string) (string, error) {
 			rec.comments = append(rec.comments, fmt.Sprintf("%s#%d:%s", fullName, number, body))
-			return nil
+			return "https://github.test/comment/1", nil
 		},
-		status: func(_ context.Context, fullName, sha, state, statusContext, _ string) error {
-			rec.statuses = append(rec.statuses, fmt.Sprintf("%s:%s:%s", sha, state, statusContext))
+		status: func(_ context.Context, fullName, sha, state, statusContext, _, targetURL string) error {
+			rec.statuses = append(rec.statuses, fmt.Sprintf("%s:%s:%s:%s", sha, state, statusContext, targetURL))
 			return nil
 		},
 		enqueue: func(ev *github.PREvent) bool {
@@ -99,7 +99,7 @@ func TestWebhookEditedCommentsAndSetsFailureStatus(t *testing.T) {
 	if len(rec.comments) != 1 || !strings.Contains(rec.comments[0], "missing-why") {
 		t.Fatalf("comments = %v", rec.comments)
 	}
-	if len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:failure:context-diary/context" {
+	if len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:failure:context-diary/context:https://github.test/comment/1" {
 		t.Errorf("statuses = %v", rec.statuses)
 	}
 	if len(rec.enqueued) != 0 {
@@ -113,7 +113,7 @@ func TestWebhookEditedCleanBodySetsSuccessStatus(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := "Fix the race.\n\nContext-Why: refund raced with settlement\n"
 	h(w, signedRequest(t, "pull_request", prPayload("edited", false, body)))
-	if len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:success:context-diary/context" {
+	if len(rec.statuses) != 1 || rec.statuses[0] != "hhh111:success:context-diary/context:https://github.test/comment/1" {
 		t.Errorf("statuses = %v", rec.statuses)
 	}
 }
@@ -129,7 +129,7 @@ func TestWebhookMergedEnqueuesWithPendingStatus(t *testing.T) {
 	if len(rec.enqueued) != 1 || rec.enqueued[0] != "acme/shop" {
 		t.Fatalf("enqueued = %v", rec.enqueued)
 	}
-	if len(rec.statuses) != 1 || rec.statuses[0] != "mmm999:pending:context-diary/ingest" {
+	if len(rec.statuses) != 1 || rec.statuses[0] != "mmm999:pending:context-diary/ingest:" {
 		t.Errorf("statuses = %v", rec.statuses)
 	}
 	if len(rec.comments) != 0 {
