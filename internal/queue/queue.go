@@ -6,6 +6,8 @@
 // Deliberately not durable: a restart drops queued jobs. The ingest cursor
 // catches up on the next merge (or a manual `context-diary index`) — the
 // same trade Atlantis makes for in-flight operations.
+//
+// @index Bounded in-memory ingest queue with per-repo serialization; not durable, cursor catches up after restart.
 package queue
 
 import (
@@ -35,6 +37,9 @@ func New(workers, capacity int, run func(ctx context.Context, key string)) *Q {
 }
 
 // Enqueue adds a job; false when the queue is full (caller surfaces 503).
+//
+// @intent accept an ingest job without blocking the webhook, or signal back-pressure when saturated
+// @domainRule returns false when the bounded buffer is full so the caller can surface a 503 with no partial side effects
 func (q *Q) Enqueue(key string) bool {
 	select {
 	case q.jobs <- key:

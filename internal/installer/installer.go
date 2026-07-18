@@ -1,6 +1,8 @@
 // Package installer implements `context-diary init` (design N1-N9): hook
 // scripts and config scaffolding. It never modifies files it does not own —
 // a foreign hook yields a manual instruction instead (design R5).
+//
+// @index context-diary init: coexistence-safe git hook installation, config scaffold, and AI-agent convention snippets.
 package installer
 
 import (
@@ -58,6 +60,10 @@ exec context-diary hook %s "$@"
 
 // Install writes hook scripts into hooksDir. Empty slot or our own script →
 // write; anything else → untouched plus a manual instruction.
+//
+// @intent install the git hooks without clobbering another tool's hooks
+// @domainRule never edit files it does not own (I-3): a foreign hook is left untouched and returned as a manual instruction
+// @sideEffect writes hook scripts into the git hooks directory
 func Install(hooksDir string) ([]Result, error) {
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create hooks dir: %w", err)

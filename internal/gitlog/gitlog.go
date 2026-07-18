@@ -1,6 +1,8 @@
 // Package gitlog walks a repository's first-parent history via go-git
 // (docs/indexer-design.md X8-X12). go-git rather than the git CLI: the
 // indexer may run where git is not installed (server container).
+//
+// @index Walks a repository history via go-git (first-parent or full DAG) and attaches backfill notes; feeds the indexer.
 package gitlog
 
 import (
@@ -26,6 +28,12 @@ const NotesRef = "refs/notes/context-diary"
 // (design L1 lift): side-branch commits carry their own trailers and are
 // indexed individually. An empty or unreachable sinceHash yields the full
 // DAG; over-collection is harmless (store dedups on conflict).
+//
+// @intent index every branch commit of a merge-commit workflow, not just the first-parent line, so per-commit context is preserved
+// @domainRule merge-commit teams use full-DAG walk; merge commits themselves carry no trailers and are stitches
+// @domainRule an unreachable cursor (history rewrite) falls back to a full rescan, which is safe because inserts are idempotent
+// @requires repoPath is a working-tree or bare git repository
+// @ensures result is ordered oldest-to-newest with parents before children on committer-time ties
 func WalkFull(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
 	repo, err := openRepo(repoPath)
 	if err != nil {
@@ -111,6 +119,10 @@ func WalkFull(repoPath, branch, sinceHash string) ([]index.Commit, string, error
 // (exclusive), oldest→newest, plus the branch head hash. An empty or
 // unreachable sinceHash yields the full first-parent line (design X11:
 // idempotent inserts make a rescan safe).
+//
+// @intent index the linear default-branch history for squash and rebase workflows where every landed commit is on the first-parent line
+// @domainRule first-parent walk is the default; squash-merge puts all context on the first-parent line
+// @ensures result is ordered oldest-to-newest starting just after sinceHash
 func Walk(repoPath, branch, sinceHash string) ([]index.Commit, string, error) {
 	repo, err := openRepo(repoPath)
 	if err != nil {

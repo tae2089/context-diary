@@ -7,6 +7,8 @@
 //     carries trailers — they land on main individually.
 //
 // Pure: no IO.
+//
+// @index Evaluates a PR context coverage (PR-description path or branch-commit path) and renders the bot comment and check page.
 package preview
 
 import (
@@ -35,6 +37,12 @@ type Result struct {
 }
 
 // Evaluate lints both paths and renders the verdict.
+//
+// @intent decide whether a PR carries enough context to merge, and render the bot comment, status description, and check page
+// @domainRule dual-path: the PR passes when EITHER the PR description carries trailers OR every non-merge branch commit does
+// @domainRule merge commits are exempt from the commit path — they are stitches, not changes
+// @domainRule when only the commit path passes, warn that a squash merge would discard the commit messages
+// @see internal/forge/github/github.go#ListPRCommits
 func Evaluate(prBody string, commits []Commit) Result {
 	bodyMsg := "subject\n\n" + prBody
 	bodyVs := trailer.Lint(bodyMsg)

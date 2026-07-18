@@ -2,6 +2,8 @@
 // (docs/serve-design.md §MCP endpoint) using the official
 // modelcontextprotocol/go-sdk. Read-only; audience translation of the
 // answers is the calling assistant's job.
+//
+// @index Exposes the context index over MCP (search_context, list_scopes, explain_function, related_by_ref); read-only.
 package mcptool
 
 import (
@@ -118,6 +120,11 @@ func toSearchResult(rs []store.Result) searchResult {
 }
 
 // NewServer builds the MCP server with the query tools registered.
+//
+// @intent expose the context index to AI assistants as MCP tools so anyone can ask why code is the way it is
+// @domainRule read-only; audience translation of answers is the calling assistant's job (write-once-developer-level principle)
+// @domainRule explain_function is registered only when a RepoPath resolver is provided (needs a local mirror and the git CLI)
+// @see internal/store/store.go#Search
 func NewServer(deps Deps) *mcp.Server {
 	s := deps.Store
 	srv := mcp.NewServer(&mcp.Implementation{

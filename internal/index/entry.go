@@ -1,5 +1,7 @@
 // Package index maps git commits to context entries per
 // docs/indexer-design.md. Pure: no IO, no database.
+//
+// @index Maps a git commit (message plus optional backfill note) to an indexable context entry; pure, no IO.
 package index
 
 import (
@@ -47,6 +49,12 @@ type Entry struct {
 //
 // Precedence: authored commit trailers win entirely; the git note
 // (docs/backfill.md) is consulted only when the message has no Context-Why.
+//
+// @intent turn one commit into an indexable context entry, or nil when it carries no why
+// @domainRule a commit with no non-empty Context-Why is not indexed — this is not an error (spec)
+// @domainRule authored commit trailers win entirely; a backfill git note is consulted only when the message has no Context-Why
+// @domainRule repeated scopes are deduplicated; invalid scope slugs are dropped and recorded in DroppedScopes
+// @ensures returns nil when neither the message nor the note yields a Context-Why; never returns an error
 func EntryFromCommit(c Commit) *Entry {
 	trailers := trailer.Parse(c.Message)
 	message := c.Message
