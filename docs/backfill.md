@@ -77,3 +77,13 @@ that arrived *before* the commits they annotate.
 - Note edits after indexing need a `--rescan` to surface (no notes webhook).
 - GitHub's UI does not render notes; the index and MCP answers are where
   backfilled context is visible.
+
+## FAQ
+
+**Q. Do backfill notes need to cover every old commit?**
+No — coverage is incremental. `context-diary backfill` always shows what is
+left; annotate the commits people actually ask about first.
+
+**Q. Who should write the notes?**
+An AI coding agent with the repo checked out — same delegation principle as
+commit authoring. Point it at the candidate list and docs/trailer-format.md.
