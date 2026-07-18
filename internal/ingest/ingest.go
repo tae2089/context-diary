@@ -1,6 +1,8 @@
 // Package ingest is the shared indexing pipeline (docs/indexer-design.md
 // X7-X21) used by both `context-diary index` and the serve webhook path:
 // walk history since the cursor, map commits to entries, save atomically.
+//
+// @index Shared incremental indexing pipeline used by both the index CLI and the serve merge webhook.
 package ingest
 
 import (
@@ -30,6 +32,11 @@ type Result struct {
 }
 
 // Run executes one incremental ingest.
+//
+// @intent walk history since the cursor, map commits to entries, and save them — the shared path behind the index CLI and the serve merge webhook
+// @domainRule Rescan ignores the stored cursor and rewalks the whole history so parser upgrades and edited backfill notes are reflected
+// @sideEffect reads the git repository and writes the Postgres index (via store.SaveEntries)
+// @see internal/store/store.go#SaveEntries
 func Run(ctx context.Context, s *store.Store, opts Options) (Result, error) {
 	repoID, cursor, err := s.UpsertRepo(ctx, opts.RepoName)
 	if err != nil {

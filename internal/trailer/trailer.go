@@ -1,6 +1,8 @@
 // Package trailer implements the Context Trailer Format v0.1
 // (docs/trailer-format.md): parsing, rendering, and linting of git commit
 // trailers. All functions are pure; callers own IO.
+//
+// @index Context trailer format: parse, render, and lint git commit trailers (Context-Why/Scope/Decision/Ref).
 package trailer
 
 import (
@@ -51,6 +53,10 @@ type Violation struct {
 // "Co-authored-by" as its own paragraph and would otherwise push the
 // Context trailers into the body). A single-paragraph message has no
 // trailer block (its only paragraph is the subject).
+//
+// @intent extract the structured trailer block from a commit or PR message
+// @domainRule the trailer block is the run of consecutive all-trailer paragraphs at the end of the message — more lenient than git's last-paragraph rule, so GitHub's appended Co-authored-by paragraph does not orphan the Context trailers
+// @domainRule a single-paragraph message has no trailer block; that paragraph is the subject
 func Parse(msg string) []Trailer {
 	block := trailingTrailerBlock(msg)
 	if block == nil {
@@ -202,6 +208,10 @@ func CommentLines(lines []string, commentChar string) []string {
 // a non-empty Context-Why must exist, scope slugs must match the grammar,
 // values must be single-line, and Context-* lines must live in the trailer
 // block. Callers strip comments first when linting an editor buffer.
+//
+// @intent validate a commit or PR message against the trailer format and return actionable violations
+// @domainRule requires a non-empty Context-Why; scope slugs must match the grammar; values must be single-line; Context-* lines must live in the trailer block
+// @ensures returns an empty slice for a conforming message
 func Lint(msg string) []Violation {
 	var vs []Violation
 	ts := Parse(msg)

@@ -1,5 +1,7 @@
 // Package store is the Postgres read model (docs/indexer-design.md §Schema).
 // The database is disposable: everything here can be rebuilt from git.
+//
+// @index Postgres read model of the context index: schema, upsert-on-change ingestion, and scope/time/text/code-ref queries.
 package store
 
 import (
@@ -123,6 +125,10 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 func (s *Store) Close() { s.pool.Close() }
 
 // Migrate applies the idempotent DDL.
+//
+// @intent create or update the schema on startup without a migration framework
+// @domainRule DDL is CREATE ... IF NOT EXISTS only; no migration tool until the first breaking schema change (YAGNI)
+// @sideEffect creates the pg_trgm extension, tables, and indexes in Postgres
 func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := s.pool.Exec(ctx, ddl); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
@@ -152,6 +158,13 @@ func (s *Store) UpsertRepo(ctx context.Context, name string) (int64, string, err
 // derived children even when the commit content is unchanged (needed when
 // the PARSER improves — e.g. new Context-Ref forms — since change detection
 // is content-based).
+//
+// @intent atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits
+// @domainRule upsert-on-change: an unchanged commit is a no-op; changed content (e.g. an edited backfill note) rebuilds its scopes/details/code-refs
+// @domainRule force=true rebuilds derived children even when content is unchanged, so parser upgrades reach already-indexed commits (used by --rescan)
+// @sideEffect writes commits, commit_scopes, commit_details, commit_code_refs and the repos cursor in one Postgres transaction
+// @ensures on error the transaction rolls back leaving no partial state
+// @return the number of inserted or refreshed commits
 func (s *Store) SaveEntries(ctx context.Context, repoID int64, entries []*index.Entry, headHash string, force bool) (int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -244,6 +257,10 @@ func sanitize(s string) string { return strings.ToValidUTF8(s, "�") }
 
 // Search returns matching entries, newest first (design §Query surface).
 // Empty repoName searches across all indexed repositories.
+//
+// @intent answer "why did this area change" by scope, time window, and free text — the non-developer query entry point
+// @domainRule free-text matches when EITHER the tsvector FTS query OR an all-words trigram substring hits, so agglutinative-language (Korean) stems find their inflected forms
+// @domainRule an empty repoName searches across every indexed repository
 func (s *Store) Search(ctx context.Context, repoName string, q Query) ([]Result, error) {
 	if q.Limit <= 0 {
 		q.Limit = 50
@@ -333,6 +350,9 @@ func scanResults(rows pgx.Rows) ([]Result, error) {
 // ReferencedBy returns entries in ANY repository whose code refs point at
 // the given repo+path (and symbol, when the ref carries one; path-level
 // refs match every symbol in the file). Oldest first.
+//
+// @intent reverse-lookup cross-repo impact: "which decision in another service concerns this function"
+// @domainRule a path-level code ref (empty symbol) matches every symbol in that file
 func (s *Store) ReferencedBy(ctx context.Context, refRepo, refPath, symbol string) ([]Result, error) {
 	rows, err := s.pool.Query(ctx, resultSelect+`
 		WHERE EXISTS (
@@ -351,6 +371,8 @@ func (s *Store) ReferencedBy(ctx context.Context, refRepo, refPath, symbol strin
 // ByRefText returns entries across all repositories whose Context-Ref
 // values contain the query text (Jira keys, doc URLs, postmortems — the
 // cross-repo join for non-code refs). Oldest first.
+//
+// @intent answer "which repos did this ticket or incident touch" by joining on a shared Context-Ref value
 func (s *Store) ByRefText(ctx context.Context, q string) ([]Result, error) {
 	rows, err := s.pool.Query(ctx, resultSelect+`
 		WHERE EXISTS (

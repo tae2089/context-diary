@@ -2,6 +2,8 @@
 // (docs/serve-design.md): webhook verification, event parsing, and the
 // three comment REST calls. Hand-rolled over net/http — a full client
 // library is not justified for this surface.
+//
+// @index GitHub forge adapter for serve: webhook HMAC verification, PR event parsing, commit statuses, comments, App auth.
 package github
 
 import (
@@ -54,6 +56,11 @@ type PRCommit struct {
 }
 
 // ValidSignature checks the X-Hub-Signature-256 header (constant-time).
+//
+// @intent authenticate that a webhook payload really came from GitHub before any side effect
+// @domainRule webhook bodies are untrusted until this passes; a bad or missing signature must be rejected with 401
+// @requires secret is the shared webhook secret configured on the GitHub App
+// @ensures comparison is constant-time to avoid timing oracles
 func ValidSignature(secret, body []byte, sigHeader string) bool {
 	want, ok := strings.CutPrefix(sigHeader, "sha256=")
 	if !ok {
@@ -151,6 +158,10 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 // SetStatus posts a commit status (docs/serve-design.md §Statuses).
 // description is truncated to GitHub's 140-char limit; a non-empty
 // targetURL becomes the status "Details" link.
+//
+// @intent surface context-diary results as a commit status that branch protection can require
+// @sideEffect posts a commit status to the GitHub REST API
+// @requires description fits GitHub's 140-char limit (truncated here otherwise)
 func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusContext, description, targetURL string) error {
 	if len(description) > 140 {
 		description = description[:137] + "..."
@@ -168,6 +179,10 @@ func (c *Client) SetStatus(ctx context.Context, fullName, sha, state, statusCont
 
 // ListPRCommits returns the PR's branch commits (first page, 100 max —
 // enough for the validation use; huge PRs are backstopped by lint on main).
+//
+// @intent fetch a PR's branch commits so the bot can validate the commit-path context carrier for merge/rebase teams
+// @domainRule reads only the first 100 commits; larger PRs are an anti-pattern and are backstopped by lint on main
+// @sideEffect calls the GitHub REST API
 func (c *Client) ListPRCommits(ctx context.Context, fullName string, number int) ([]PRCommit, error) {
 	var raw []struct {
 		SHA    string `json:"sha"`
@@ -192,6 +207,11 @@ func (c *Client) ListPRCommits(ctx context.Context, fullName string, number int)
 // UpsertComment maintains exactly one bot comment per PR, identified by
 // marker: update in place when found, create otherwise (design W6-W7).
 // Returns the comment's html_url — the status "Details" target.
+//
+// @intent keep exactly one bot comment per PR so pushes never spam the thread
+// @domainRule the comment is found by an HTML marker and updated in place; otherwise a new one is created
+// @sideEffect creates or edits an issue comment via the GitHub REST API
+// @return the comment's html_url, used as the commit-status Details target
 func (c *Client) UpsertComment(ctx context.Context, fullName string, number int, marker, body string) (string, error) {
 	var comments []struct {
 		ID      int64  `json:"id"`

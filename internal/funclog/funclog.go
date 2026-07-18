@@ -3,6 +3,8 @@
 // It execs the git CLI: go-git has no line-level history, and every host
 // that runs this (dev clones, serve mirror hosts) has git anyway. Works on
 // bare mirrors — log needs no worktree.
+//
+// @index Finds the commits that changed one function via git log -L; the per-function why-timeline source.
 package funclog
 
 import (
@@ -26,6 +28,11 @@ var hashLine = regexp.MustCompile(`^([0-9a-f]{40})\t([^\t]*)\t(.*)$`)
 // CommitsTouching returns the commits on branch that changed the named
 // function in file, oldest first. Function matching uses git's language-
 // aware funcname patterns (`-L :<funcname>:<file>`).
+//
+// @intent list the commits that changed one function, so their context can be joined into a per-function why-timeline
+// @domainRule uses the git CLI (git log -L); go-git has no line-level history, and hosts that run this have git anyway
+// @sideEffect executes the git binary against repoPath (works on bare mirrors — log needs no worktree)
+// @ensures result is ordered oldest-to-newest
 func CommitsTouching(repoPath, branch, file, function string) ([]Commit, error) {
 	rev := "HEAD"
 	if branch != "" {

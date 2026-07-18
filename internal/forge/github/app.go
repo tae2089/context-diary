@@ -65,6 +65,11 @@ func NewAppAuth(base, appID, installationID, privateKeyPEM string) (*AppAuth, er
 
 // Token returns a valid installation token, refreshing when within the
 // early-refresh margin of expiry.
+//
+// @intent provide a valid GitHub App installation token to every API call, hiding the JWT-exchange and hourly rotation
+// @domainRule the cached token is reused until within the early-refresh margin of expiry, then re-fetched
+// @sideEffect on refresh, signs an app JWT and calls the GitHub access-tokens endpoint
+// @mutates the cached token and expiry
 func (a *AppAuth) Token(ctx context.Context) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

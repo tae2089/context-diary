@@ -2,6 +2,8 @@
 // (docs/serve-design.md §Web UI): server-rendered html/template, no
 // JavaScript required, embedded in the serve binary. Same trust posture as
 // /mcp — deploy inside the network boundary.
+//
+// @index Read-only server-rendered web UI over the index: search, scope chips, entry cards; no JavaScript.
 package webui
 
 import (

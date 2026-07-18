@@ -3,6 +3,8 @@
 // a target_url pointing at GET /checks/{id} on this server. Lifetime
 // matches Atlantis job logs — a restart clears the store; the durable
 // record stays in the bot comment and the index.
+//
+// @index In-memory store backing Atlantis-style commit-status detail pages addressed by random capability ids.
 package checks
 
 import (
@@ -51,6 +53,11 @@ func NewStore(capacity int) *Store {
 
 // Upsert creates or replaces the check for key and returns its public id,
 // which is stable while the key is resident (pending → final share a URL).
+//
+// @intent create or replace a check detail page and return the stable capability URL id for its logical key
+// @domainRule the same logical key keeps the same id while resident, so a pending status and its final result share one URL
+// @domainRule evicts the oldest key beyond the capacity bound (FIFO); pages are non-durable and cleared on restart
+// @mutates the in-memory check store
 func (s *Store) Upsert(key, title, state string, body []string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

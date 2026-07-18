@@ -2,6 +2,8 @@
 // per docs/cli-design.md v0.2 (P1-P16, L1-L8). The never-block invariant
 // (I-1) lives here: Prepare reports problems on Stderr and returns; it never
 // fails the commit. Only CommitMsg in strict lint mode can block.
+//
+// @index prepare-commit-msg and commit-msg git hooks: template injection and trailer lint under the never-block invariant.
 package hook
 
 import (
@@ -38,6 +40,12 @@ func (d Deps) warnf(format string, args ...any) {
 // trailer template for the developer to fill in. It edits msgFile in place
 // when the template applies, and silently returns on every skip or failure
 // path.
+//
+// @intent give a human committer a commented trailer template to fill in, without ever blocking the commit
+// @domainRule never-block (I-1): every failure path warns to stderr and returns; the commit is never rejected here
+// @domainRule skipped when mode is off, on merge/squash/-m sources, when Context-Why already present, or when the staged diff is empty
+// @sideEffect overwrites the commit message file with the template inserted before git's comment section
+// @mutates the commit message file at msgFile
 func Prepare(deps Deps, msgFile, source string) {
 	if deps.Config.Hook.Mode == config.ModeOff {
 		return
@@ -102,6 +110,10 @@ func insertBlock(msg string, block []string, commentChar string) string {
 // CommitMsg implements the commit-msg flow (L1-L8): lint the final message,
 // blocking only in strict mode. Violation messages are the feedback an AI
 // agent uses to fix the message and retry.
+//
+// @intent lint the final commit message and, in strict mode, reject it so the AI agent self-corrects from the violation output
+// @domainRule blocks the commit only when lint.level is strict and violations exist; warn mode never blocks
+// @ensures Blocked is true only for strict mode with at least one violation
 func CommitMsg(cfg config.Config, msg, commentChar string) Result {
 	vs := trailer.Lint(trailer.StripComments(msg, commentChar))
 	return Result{

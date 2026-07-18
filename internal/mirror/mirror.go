@@ -1,6 +1,8 @@
 // Package mirror maintains bare repository mirrors for serve's merge-time
 // ingestion (docs/serve-design.md M3). Tokens are used in-memory only; the
 // on-disk mirror stores no credentials.
+//
+// @index Maintains bare git mirrors for merge-time ingestion; tokens are used in-memory only, never stored on disk.
 package mirror
 
 import (
@@ -21,6 +23,12 @@ func Path(cacheDir, fullName string) string {
 
 // Sync clones (first time) or fetches (afterwards) a mirror of cloneURL
 // under cacheDir, keyed by fullName. Returns the mirror path.
+//
+// @intent keep a local bare mirror of a repository so merge-time ingestion has git history without a working tree
+// @domainRule the token is used for in-memory auth only; the on-disk bare mirror never stores credentials
+// @sideEffect clones or fetches into cacheDir over the network using the GitHub token
+// @requires cacheDir is writable
+// @ensures a partial clone is removed so a later Sync retries cleanly
 func Sync(cacheDir, fullName, cloneURL, token string) (string, error) {
 	path := Path(cacheDir, fullName)
 

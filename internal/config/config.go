@@ -1,5 +1,7 @@
 // Package config loads context-diary configuration with the precedence
 // defined in docs/cli-design.md: env > repo file > user file > defaults.
+//
+// @index Loads context-diary hook/lint configuration with env-over-repo-over-user-over-default precedence; secrets never here.
 package config
 
 import (
